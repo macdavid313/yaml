@@ -1,3 +1,7 @@
 #+title: yaml - YAML processor for Allegro CL
 #+author: Tianyu Gu
 #+email: gty@franz.com
+
+* Links
+** [[https://yaml.org/][The Official YAML Web Site]]
+** [[https://github.com/yaml/libyaml][libyaml - Canonical source repository for LibYAML ]]

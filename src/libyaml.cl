@@ -1,26 +1,9 @@
-;;;; yaml.cl
-(in-package #:cl-user)
-
-(defpackage #:yaml
-  (:use #:cl
-        #:excl
-        #:ff)
-  (:export #:parse
-           #:emit
-           #:emit-to-string
-           #:emit-pretty-as-document
-           #:emit-pretty-as-document-to-string
-           #:register-scalar-converter
-           #:register-sequence-converter
-           #:register-mapping-converter
-           #:with-emitter-to-stream
-           #:with-emitter-to-string
-           #:emit-object
-           #:print-scalar))
-
+;;;; libyaml.cl
 (in-package #:yaml)
 
-;;; libyaml
+(eval-when (:compile-toplevel)
+  (declaim (optimize (speed 3) (safety 0) (space 0))))
+
 (def-foreign-call yaml_get_version_string (:void)
   :documentation "Get the library version as a string."
   :returning ((* :char) simple-string)
@@ -1170,20 +1153,3 @@ it is emitted. The document object is destroyed even if the function fails."
   :returning :int
   :call-direct t
   :arg-checking nil)
-
-;;; High-level APIs
-(defun parse (string-or-pathname)
-  (etypecase string-or-pathname
-    (string (with-stack-fobjects ((parser 'yaml_parser_t)
-                                  (event 'yaml_event_t))
-              (yaml_parser_initialize parser)
-              (with-native-string (input string-or-pathname :native-length-var size)
-                (yaml_parser_set_input_string parser input size)
-                (loop for flag = (when (zerop (yaml_parser_parse parser event))
-                                   (error (native-to-string (fslot-value-typed 'yaml_parser_t :foreign parser 'problem))))
-                      for event-type = (svref *enum-yaml-event-type* (fslot-value-typed 'yaml_event_t :foreign event 'type))
-                      until (eql event-type 'YAML_STREAM_END_EVENT)
-                      do (print event-type)
-                      finally (progn (yaml_parser_delete parser)
-                                     (yaml_event_delete event))))))
-    (pathname )))
