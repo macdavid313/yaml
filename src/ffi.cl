@@ -1,4 +1,4 @@
-;;;; libyaml.cl
+;;;; ffi.cl
 (in-package #:yaml)
 
 (eval-when (:compile-toplevel)
