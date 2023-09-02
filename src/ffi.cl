@@ -301,7 +301,7 @@
                             (anchor (* yaml_char_t))
                             (tag (* yaml_char_t))
                             (implicit :int)
-                            (style yaml_sequence_style_t)))))
+                            (style yaml_mapping_style_t)))))
      ;; The beginning of the event.
      (start_mark yaml_mark_t)
      ;; The end of the event.
