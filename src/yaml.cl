@@ -246,7 +246,7 @@
         (anchors (make-hash-table :test #'equal))
         (aliases (make-hash-table :test #'eql))
         (event-alias-id (make-hash-table :test #'eql)))
-    (declare (dynamic-extent events anchors))
+    (declare (dynamic-extent anchors))
     (unwind-protect
          (progn
            ;; start scanning
