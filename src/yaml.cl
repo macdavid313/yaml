@@ -27,6 +27,10 @@
      (unwind-protect (progn ,@body)
        (yaml_parser_delete ,parser-var))))
 
+(defun libyaml-parser-state (parser)
+  (svref *enum-yaml-parser-state*
+         (fslot-value-typed 'yaml_parser_t :foreign parser 'state)))
+
 (defun libyaml-event-type (event)
   (declare (type fixnum event))
   (svref *enum-yaml-event-type*
@@ -132,7 +136,8 @@
   ())
 
 ;;; Internal implementations
-(defun parse-scalar (value style)
+(defun yaml-scalar->lisp (value tag style)
+  (declare (ignorable tag))
   (cond
     ;; Quoted string
     ((member style '(YAML_SINGLE_QUOTED_SCALAR_STYLE YAML_DOUBLE_QUOTED_SCALAR_STYLE) :test 'eq)
@@ -178,8 +183,7 @@
   (declare (type (array fixnum (*)) events)
            (type hash-table aliases)
            (ignorable aliases))
-  (let ((pos 0)
-        document)
+  (let ((pos 0))
     (labels ((next ()
                (incf pos)
                (when (> pos (1- (length events)))
@@ -191,22 +195,27 @@
                  (when (< next-pos (length events))
                    (aref events next-pos))))
 
-             (parse-event (event)
+             (parse (event)
                (let ((event-type (libyaml-event-type event)))
                  (case event-type
                    (YAML_SCALAR_EVENT
                     (let ((anchor (fslot-value-typed 'yaml_event_t :aligned event 'data 'scalar 'anchor))
+                          (tag (fslot-value-typed 'yaml_event_t :aligned event 'data 'scalar 'tag))
                           (value (fslot-value-typed 'yaml_event_t :aligned event 'data 'scalar 'value))
                           (length (fslot-value-typed 'yaml_event_t :aligned event 'data 'scalar 'length))
                           (style (fslot-value-typed 'yaml_event_t :aligned event 'data 'scalar 'style)))
+                      (when (/= tag 0)
+                        (setq tag (native-to-string tag)))
                       (if* (= 0 anchor)
-                         then (setq value (native-to-string value :length length))
-                              (parse-scalar value (svref *enum-yaml-scalar-style* style))
+                         then (setq value (native-to-string value))
+                              (yaml-scalar->lisp value tag (svref *enum-yaml-scalar-style* style))
                          else (setq anchor (native-to-string anchor :length length)) ; TODO: handle anchor
                               nil)))
 
                    (YAML_SEQUENCE_START_EVENT
-                    (let ()
+                    (let ((tag (fslot-value-typed 'yaml_event_t :aligned event 'data 'sequence_start 'tag)))
+                      (when (/= tag 0)
+                        (setq tag (native-to-string tag)))
                       (do (sequence)
                           ((eq (libyaml-event-type (peek)) 'YAML_SEQUENCE_END_EVENT)
                            ;; return
@@ -217,10 +226,12 @@
                            then (error 'yaml-unexpected-event-type-error :expect 'YAML_SEQUENCE_END_EVENT
                                                                          :actual :eof
                                                                          :mark (make-yaml-mark (libyaml-event-end-mark event)))
-                           else (push (parse-event (next)) sequence)))))
+                           else (push (parse (next)) sequence)))))
 
                    (YAML_MAPPING_START_EVENT
-                    (let ()
+                    (let ((tag (fslot-value-typed 'yaml_event_t :aligned event 'data 'mapping_start 'tag)))
+                      (when (/= tag 0)
+                        (setq tag (native-to-string tag)))
                       (do ((mapping (make-hash-table :test 'equal)))
                           ((eq (libyaml-event-type (peek)) 'YAML_MAPPING_END_EVENT)
                            ;; return
@@ -234,12 +245,9 @@
                                (error 'yaml-unexpected-event-type-error :expect 'YAML_SCALAR_EVENT
                                                                         :actual (libyaml-event-type (peek))
                                                                         :mark (make-yaml-mark (libyaml-event-start-mark (peek)))))
-                              (t (setf (gethash (parse-event (next)) mapping)
-                                       (parse-event (next))))))))))))
-      (while (< pos (1- (length events)))
-        (let ((event (aref events pos)))
-          (push (parse-event event) document))))
-    (nreverse document)))
+                              (t (setf (gethash (parse (next)) mapping)
+                                       (parse (next))))))))))))
+      (parse (aref events pos)))))
 
 (defun parse-next-document (parser)
   (let ((events (make-array 0 :element-type 'fixnum :adjustable t :fill-pointer 0))
@@ -297,7 +305,9 @@
                    ((YAML_SEQUENCE_END_EVENT YAML_MAPPING_END_EVENT)
                     (vector-push-extend event events))))))
            ;; end of scanning (while t ... )
-           (make-yaml-document events aliases))
+           (if* (= 0 (length events))
+              then nil
+              else (make-yaml-document events aliases)))
       ;; cleanup events
       (do ((i 0 (1+ i)))
           ((= i (length events)))
@@ -313,7 +323,6 @@
       (parse-next-document parser))))
 
 (defun parse-yaml-file (filespec)
-  (assert (probe-file filespec))
   (parse-yaml-string (file-contents filespec)))
 
 (define-compiler-macro parse-yaml-file (filespec &whole forms)
@@ -333,23 +342,36 @@
                            (assert (zerop (fclose ,fp))))))))
      else forms))
 
-;; (defun-foreign-callable yaml-read-handler ((data :lisp)
-;;                                            (buffer (* :unsigned-char))
-;;                                            (size size_t)
-;;                                            (size_read (* size_t)))
-;;   (declare (:lisp-args-will-not-move t)
-;;            (:returning :int))
-;;   (if* (ignore-errors (let ((i 0))
-;;                         (while (< i size)
-;;                           (let ((byte (read-byte data :nil :eof)))
-;;                             (if* (eq byte :eof)
-;;                                then (return)
-;;                                else (setf (fslot-value-typed :unsigned-char :c (+ buffer (* i #.(sizeof-fobject :unsigned-char))))
-;;                                           byte))))
-;;                         (setf (fslot-value-typed 'size_t :c size_read) i)))
-;;      then 1
-;;      else 0))
+(defun parse-yaml* (parser)
+  (let (doc documents)
+    (while (not (eq (libyaml-parser-state parser) 'YAML_PARSE_END_STATE))
+      (setq doc (parse-next-document parser))
+      (when doc
+        (push doc documents)))
+    (nreverse documents)))
 
-(defun emit (data)
-  data
-  'not-implemented)
+(defun parse-yaml-string* (str)
+  (with-libyaml-parser (parser)
+    (with-native-string (input str :native-length-var size)
+      (yaml_parser_set_input_string parser input size)
+      (parse-yaml* parser))))
+
+(defun parse-yaml-file* (filespec)
+  (parse-yaml-string* (file-contents filespec)))
+
+(define-compiler-macro parse-yaml-file* (filespec &whole forms)
+  (if* (and (get-entry-point "fopen") (get-entry-point "fclose"))
+     then (let ((fp (gensym "fp"))
+                (parser (gensym "parser")))
+            `(progn
+               (assert (probe-file ,filespec))
+               (let ((,fp (fopen (namestring (if (pathnamep ,filespec) filespec (pathname ,filespec)))
+                                 "r")))
+                 (if* (zerop ,fp)
+                    then (parse-yaml-string* (file-contents ,filespec))
+                    else (unwind-protect
+                              (with-libyaml-parser (,parser)
+                                (yaml_parser_set_input_file ,parser ,fp)
+                                (parse-yaml* ,parser))
+                           (assert (zerop (fclose ,fp))))))))
+     else forms))
