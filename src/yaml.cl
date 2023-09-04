@@ -119,25 +119,25 @@
     ((member value '("false" "False" "FALSE") :test 'equal)
      nil)
     ;; Integer
-    ((match-re "^([-+]?[0-9]+)$" value :single-line t)
+    ((match-re "^([-+]?[0-9]+)$" value :return :index)
      (parse-integer value :junk-allowed nil))
     ;; Octal digits
-    ((match-re "^0o([0-7]+)$" value :single-line t)
+    ((match-re "^0o([0-7]+)$" value :return :index)
      (parse-integer value :start 2 :radix 8 :junk-allowed nil))
     ;; Hex digits
-    ((match-re "^0x([0-9a-fA-F]+)$" value :single-line t)
+    ((match-re "^0x([0-9a-fA-F]+)$" value :return :index)
      (parse-integer value :start 2 :radix 16 :junk-allowed nil))
     ;; Floating-point number
-    ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :single-line t)
+    ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :return :index)
      (strtod value))
     ;; NaN
     ((member value '(".nan" ".NaN" ".NAN") :test 'equal)
      *nan-double*)
     ;; +Inf
-    ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" value :single-line t)
+    ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" value :return :index)
      *infinity-double*)
     ;; -Inf
-    ((match-re "^-(\\.inf|\\.Inf|\\.INF)$" value :single-line t)
+    ((match-re "^-(\\.inf|\\.Inf|\\.INF)$" value :return :index)
      *negative-infinity-double*)
     ;; Just a string
     (t value)))
