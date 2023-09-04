@@ -142,7 +142,6 @@
     ;; Just a string
     (t value)))
 
-;;; Top-level APIs
 (defun load-yaml-node (node document)
   (case (svref *enum-yaml-node-type* (fslot-value-typed 'yaml_node_t :c node 'type))
     (YAML_SCALAR_NODE   (load-yaml-scalar-node node))
@@ -204,60 +203,51 @@
          else (unwind-protect (load-yaml-node root document)
                 (yaml_document_delete document))))))
 
-(defun parse-yaml-string (str)
+;;; Top-level APIs
+(defgeneric read-yaml (input)
+  (:documentation "Read a YAML document from `input'."))
+
+(defmethod read-yaml ((str string))
   (with-libyaml-parser (parser)
     (with-native-string (input str :native-length-var size)
       (yaml_parser_set_input_string parser input size)
       (load-yaml parser))))
 
-(defun parse-yaml-file (filespec)
-  (parse-yaml-string (file-contents filespec)))
-
-(define-compiler-macro parse-yaml-file (filespec &whole forms)
+(defmethod read-yaml ((path pathname))
   (if* (and (get-entry-point "fopen") (get-entry-point "fclose"))
-     then (let ((fp (gensym "fp"))
-                (parser (gensym "parser")))
-            `(progn
-               (assert (probe-file ,filespec))
-               (let ((,fp (fopen (namestring (if (pathnamep ,filespec) filespec (pathname ,filespec)))
-                                 "r")))
-                 (if* (zerop ,fp)
-                    then (parse-yaml-string (file-contents ,filespec))
-                    else (unwind-protect
-                              (with-libyaml-parser (,parser)
-                                (yaml_parser_set_input_file ,parser ,fp)
-                                (load-yaml ,parser))
-                           (assert (zerop (fclose ,fp))))))))
-     else forms))
+     then (let ((fp (fopen (namestring path) "r")))
+            (if* (zerop fp)
+               then (read-yaml (file-contents path))
+               else (unwind-protect
+                         (with-libyaml-parser (parser)
+                           (yaml_parser_set_input_file parser fp)
+                           (load-yaml parser))
+                      (assert (zerop (fclose fp))))))
+     else (read-yaml (file-contents path))))
 
-(defmacro parse-yaml* (parser)
+(defmacro read-yaml-documents (parser)
   (let ((doc (gensym "doc-")))
     `(loop for ,doc = (load-yaml ,parser)
            until (eq ,doc 'YAML_EMPTY_DOCUMENT)
            collect ,doc)))
 
-(defun parse-yaml-string* (str)
+(defgeneric read-yaml* (input)
+  (:documentation "Read YAML document(s) into a list from `input'"))
+
+(defmethod read-yaml* ((str string))
   (with-libyaml-parser (parser)
     (with-native-string (input str :native-length-var size)
       (yaml_parser_set_input_string parser input size)
-      (parse-yaml* parser))))
+      (read-yaml-documents parser))))
 
-(defun parse-yaml-file* (filespec)
-  (parse-yaml-string* (file-contents filespec)))
-
-(define-compiler-macro parse-yaml-file* (filespec &whole forms)
+(defmethod read-yaml* ((path pathname))
   (if* (and (get-entry-point "fopen") (get-entry-point "fclose"))
-     then (let ((fp (gensym "fp"))
-                (parser (gensym "parser")))
-            `(progn
-               (assert (probe-file ,filespec))
-               (let ((,fp (fopen (namestring (if (pathnamep ,filespec) filespec (pathname ,filespec)))
-                                 "r")))
-                 (if* (zerop ,fp)
-                    then (parse-yaml-string* (file-contents ,filespec))
-                    else (unwind-protect
-                              (with-libyaml-parser (,parser)
-                                (yaml_parser_set_input_file ,parser ,fp)
-                                (parse-yaml* ,parser))
-                           (assert (zerop (fclose ,fp))))))))
-     else forms))
+     then (let ((fp (fopen (namestring path) "r")))
+            (if* (zerop fp)
+               then (read-yaml (file-contents path))
+               else (unwind-protect
+                         (with-libyaml-parser (parser)
+                           (yaml_parser_set_input_file parser fp)
+                           (read-yaml* parser))
+                      (assert (zerop (fclose fp))))))
+     else (read-yaml* (file-contents path))))
