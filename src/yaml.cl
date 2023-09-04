@@ -106,16 +106,16 @@
     ((member value '("false" "False" "FALSE") :test 'equal)
      nil)
     ;; Integer
-    ((match-re "^([-+]?[0-9]+)$" value)
+    ((match-re "^([-+]?[0-9]+)$" value :single-line t)
      (parse-integer value :junk-allowed nil))
     ;; Octal digits
-    ((match-re "^0o([0-7]+)$" value)
+    ((match-re "^0o([0-7]+)$" value :single-line t)
      (parse-integer value :start 2 :radix 8 :junk-allowed nil))
     ;; Hex digits
-    ((match-re "^0x([0-9a-fA-F]+)$" value)
+    ((match-re "^0x([0-9a-fA-F]+)$" value :single-line t)
      (parse-integer value :start 2 :radix 16 :junk-allowed nil))
     ;; Floating-point number
-    ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value)
+    ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :single-line t)
      (if* (get-entry-point "strtod")
         then (with-native-string (str value)
                (strtod str 0))
@@ -125,10 +125,10 @@
     ((member value '(".nan" ".NaN" ".NAN") :test 'equal)
      *nan-double*)
     ;; +Inf
-    ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" value)
+    ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" value :single-line t)
      *infinity-double*)
     ;; -Inf
-    ((match-re "^-(\\.inf|\\.Inf|\\.INF)$" value)
+    ((match-re "^-(\\.inf|\\.Inf|\\.INF)$" value :single-line t)
      *negative-infinity-double*)
     ;; Just a string
     (t value)))
@@ -183,14 +183,15 @@
                    (read-yaml-node v document))
           finally (return mapping))))
 
-(defun yaml-parser-load (parser)
+(defun read-yaml (parser)
   (with-stack-fobjects ((document 'yaml_document_t))
     (when (= 0 (yaml_parser_load parser document))
       (yaml_document_delete document)
       (signal-yaml-parser-error parser))
     (let ((root (yaml_document_get_root_node document)))
       (if* (= root 0)
-         then 'YAML_EMPTY_DOCUMENT
+         then (yaml_document_delete document)
+              'YAML_EMPTY_DOCUMENT
          else (unwind-protect (read-yaml-node root document)
                 (yaml_document_delete document))))))
 
@@ -198,7 +199,7 @@
   (with-libyaml-parser (parser)
     (with-native-string (input str :native-length-var size)
       (yaml_parser_set_input_string parser input size)
-      (yaml-parser-load parser))))
+      (read-yaml parser))))
 
 (defun parse-yaml-file (filespec)
   (parse-yaml-string (file-contents filespec)))
@@ -216,13 +217,13 @@
                     else (unwind-protect
                               (with-libyaml-parser (,parser)
                                 (yaml_parser_set_input_file ,parser ,fp)
-                                (yaml-parser-load ,parser))
+                                (read-yaml ,parser))
                            (assert (zerop (fclose ,fp))))))))
      else forms))
 
 (defmacro parse-yaml* (parser)
   (let ((doc (gensym "doc-")))
-    `(loop for ,doc = (yaml-parser-load ,parser)
+    `(loop for ,doc = (read-yaml ,parser)
            until (eq ,doc 'YAML_EMPTY_DOCUMENT)
            collect ,doc)))
 
