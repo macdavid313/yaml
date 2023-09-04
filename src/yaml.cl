@@ -143,13 +143,13 @@
     (t value)))
 
 ;;; Top-level APIs
-(defun read-yaml-node (node document)
+(defun load-yaml-node (node document)
   (case (svref *enum-yaml-node-type* (fslot-value-typed 'yaml_node_t :c node 'type))
-    (YAML_SCALAR_NODE   (read-yaml-scalar-node node))
-    (YAML_SEQUENCE_NODE (read-yaml-sequence-node node document))
-    (YAML_MAPPING_NODE  (read-yaml-mapping-node node document))))
+    (YAML_SCALAR_NODE   (load-yaml-scalar-node node))
+    (YAML_SEQUENCE_NODE (load-yaml-sequence-node node document))
+    (YAML_MAPPING_NODE  (load-yaml-mapping-node node document))))
 
-(defun read-yaml-scalar-node (node)
+(defun load-yaml-scalar-node (node)
   (let ((tag (fslot-value-typed 'yaml_node_t :c node 'tag))
         (value (native-to-string (fslot-value-typed 'yaml_node_t :c node 'data 'scalar 'value)
                                  :length (fslot-value-typed 'yaml_node_t :c node 'data 'scalar 'length)))
@@ -158,7 +158,7 @@
     (setq tag (if (= 0 tag) nil (native-to-string tag)))
     (yaml-scalar->lisp value tag style)))
 
-(defun read-yaml-sequence-node (node document)
+(defun load-yaml-sequence-node (node document)
   (let ((tag   (fslot-value-typed 'yaml_node_t :c node 'tag))
         (start (fslot-value-typed 'yaml_node_t :c node 'data 'sequence 'items 'start))
         (top   (fslot-value-typed 'yaml_node_t :c node 'data 'sequence 'items 'top))
@@ -171,10 +171,10 @@
           for item = start then (+ item #.(sizeof-fobject 'yaml_node_item_t))
           for node = (yaml_document_get_node document (fslot-value-typed 'yaml_node_item_t :c item))
           until (= item top)
-          do (setf (aref sequence i) (read-yaml-node node document))
+          do (setf (aref sequence i) (load-yaml-node node document))
           finally (return sequence))))
 
-(defun read-yaml-mapping-node (node document)
+(defun load-yaml-mapping-node (node document)
   (let ((tag   (fslot-value-typed 'yaml_node_t :c node 'tag))
         (start (fslot-value-typed 'yaml_node_t :c node 'data 'mapping 'pairs 'start))
         (top   (fslot-value-typed 'yaml_node_t :c node 'data 'mapping 'pairs 'top))
@@ -188,11 +188,11 @@
           for k = (yaml_document_get_node document (fslot-value-typed 'yaml_node_pair_t :c pair 'key))
           for v = (yaml_document_get_node document (fslot-value-typed 'yaml_node_pair_t :c pair 'value))
           until (= pair top)
-          do (setf (gethash (read-yaml-node k document) mapping)
-                   (read-yaml-node v document))
+          do (setf (gethash (load-yaml-node k document) mapping)
+                   (load-yaml-node v document))
           finally (return mapping))))
 
-(defun read-yaml (parser)
+(defun load-yaml (parser)
   (with-stack-fobjects ((document 'yaml_document_t))
     (when (= 0 (yaml_parser_load parser document))
       (yaml_document_delete document)
@@ -201,14 +201,14 @@
       (if* (= root 0)
          then (yaml_document_delete document)
               'YAML_EMPTY_DOCUMENT
-         else (unwind-protect (read-yaml-node root document)
+         else (unwind-protect (load-yaml-node root document)
                 (yaml_document_delete document))))))
 
 (defun parse-yaml-string (str)
   (with-libyaml-parser (parser)
     (with-native-string (input str :native-length-var size)
       (yaml_parser_set_input_string parser input size)
-      (read-yaml parser))))
+      (load-yaml parser))))
 
 (defun parse-yaml-file (filespec)
   (parse-yaml-string (file-contents filespec)))
@@ -226,13 +226,13 @@
                     else (unwind-protect
                               (with-libyaml-parser (,parser)
                                 (yaml_parser_set_input_file ,parser ,fp)
-                                (read-yaml ,parser))
+                                (load-yaml ,parser))
                            (assert (zerop (fclose ,fp))))))))
      else forms))
 
 (defmacro parse-yaml* (parser)
   (let ((doc (gensym "doc-")))
-    `(loop for ,doc = (read-yaml ,parser)
+    `(loop for ,doc = (load-yaml ,parser)
            until (eq ,doc 'YAML_EMPTY_DOCUMENT)
            collect ,doc)))
 
