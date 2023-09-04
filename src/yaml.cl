@@ -13,12 +13,25 @@
   :call-direct t
   :arg-checking nil)
 
-(def-foreign-call strtod ((str :foreign-address)
-                          (endptr :foreign-address))
+(def-foreign-call (.strtod. "strtod") ((str :foreign-address)
+                                       (endptr :foreign-address))
   :returning :double
   :strings-convert nil
   :call-direct t
   :arg-checking nil)
+
+(defun strtod (str)
+  (declare (type simple-string str)
+           (optimize (speed 3) (safety 0) (space 0)))
+  (let ((*read-default-float-format* 'double-float))
+    (the double-float (read-from-string str))))
+
+(define-compiler-macro strtod (str &whole forms)
+  (if* (get-entry-point "strtod")
+     then (let ((s (gensym "s")))
+            `(with-native-string (,s ,str)
+               (.strtod. ,s 0)))
+     else forms))
 
 (defmacro with-libyaml-parser ((parser-var) &body body)
   `(with-stack-fobjects ((,parser-var 'yaml_parser_t))
@@ -116,11 +129,7 @@
      (parse-integer value :start 2 :radix 16 :junk-allowed nil))
     ;; Floating-point number
     ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :single-line t)
-     (if* (get-entry-point "strtod")
-        then (with-native-string (str value)
-               (strtod str 0))
-        else (let ((*read-default-float-format* 'double-float))
-               (read-from-string value))))
+     (strtod value))
     ;; NaN
     ((member value '(".nan" ".NaN" ".NAN") :test 'equal)
      *nan-double*)
