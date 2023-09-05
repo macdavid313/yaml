@@ -19,6 +19,16 @@
   (handle "" :type simple-string :read-only t)
   (prefix "" :type simple-string :read-only t))
 
+(defparameter *yaml-null* nil
+  "A special variable that determines the value that corresponds to a YAML
+\"null\" (or empty scalar) value. It is nil by default.")
+
+(defmethod print-object ((x (eql *yaml-null*)) stream)
+  (write-sequence "*yaml-null*" stream))
+
+(defun yaml-null-p (x)
+  (eq x *yaml-null*))
+
 (def-foreign-call (.strtod. "strtod") ((str :foreign-address)
                                        (endptr :foreign-address))
   :returning :double
@@ -50,7 +60,7 @@
      value)
     ;; Null
     ((member value '("null" "Null" "NULL" "~") :test 'equal)
-     nil)
+     *yaml-null*)
     ;; True
     ((member value '("true" "True" "TRUE") :test 'equal)
      t)

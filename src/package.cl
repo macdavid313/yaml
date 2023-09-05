@@ -5,5 +5,7 @@
   (:use #:cl
         #:excl
         #:ff)
-  (:export #:read-yaml
+  (:export #:*yaml-null*
+           #:yaml-null-p
+           #:read-yaml
            #:read-yaml*))
