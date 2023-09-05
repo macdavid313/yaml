@@ -1,11 +1,19 @@
 ;;;; yaml.cl
 (in-package #:yaml)
 
+(eval-when (:load-toplevel)
+  (let ((workdir (directory-namestring *load-pathname*)))
+    (load #.(string+ "libyaml" #\. (car *load-foreign-types*))
+          :foreign t
+          :search-list (list workdir    ; the distributed libyaml shared library
+                             (string+ workdir "../") ; for development environment
+                             ))))
+
 (def-foreign-call fopen ((pathname (* :char) simple-string)
                          (mode (* :char) simple-string))
-  :returning :foreign-address
-  :strings-convert t
-  :arg-checking nil)
+                  :returning :foreign-address
+                  :strings-convert t
+                  :arg-checking nil)
 
 (def-foreign-call fclose ((fp :foreign-address))
   :returning :int

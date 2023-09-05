@@ -4,7 +4,8 @@
 (defpackage #:yaml
   (:use #:cl
         #:excl
-        #:ff)
+        #:ff
+        #:util.string)
   (:export #:*yaml-null*
            #:yaml-null-p
            #:read-yaml
