@@ -69,13 +69,19 @@
      nil)
     ;; Integer
     ((match-re "^([-+]?[0-9]+)$" value :return :index)
-     (parse-integer value :junk-allowed nil))
+     (multiple-value-bind (res pos) (parse-integer value :junk-allowed nil)
+       (declare (ignore pos))
+       res))
     ;; Octal digits
     ((match-re "^0o([0-7]+)$" value :return :index)
-     (parse-integer value :start 2 :radix 8 :junk-allowed nil))
+     (multiple-value-bind (res pos) (parse-integer value :start 2 :radix 8 :junk-allowed nil)
+       (declare (ignore pos))
+       res))
     ;; Hex digits
     ((match-re "^0x([0-9a-fA-F]+)$" value :return :index)
-     (parse-integer value :start 2 :radix 16 :junk-allowed nil))
+     (multiple-value-bind (res pos) (parse-integer value :start 2 :radix 16 :junk-allowed nil)
+       (declare (ignore pos))
+       res))
     ;; Floating-point number
     ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :return :index)
      (strtod value))
