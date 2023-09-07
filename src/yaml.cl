@@ -77,7 +77,7 @@
         (style (svref *enum-yaml-scalar-style*
                       (fslot-value-typed 'yaml_node_t :c node 'data 'scalar 'style))))
     (setq tag (if (= 0 tag) nil (native-to-string tag)))
-    (yaml-scalar->lisp value tag style)))
+    (yaml-scalar-to-lisp value tag style)))
 
 (defun load-yaml-sequence-node (node document)
   (let ((tag   (fslot-value-typed 'yaml_node_t :c node 'tag))

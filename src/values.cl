@@ -46,23 +46,22 @@
                (.strtod. ,s 0)))
      else forms))
 
-(defun yaml-scalar->lisp (value tag style)
-  (declare (ignorable tag)
-           (type simple-string value)
+(defun yaml-scalar-to-lisp (value tag style)
+  (declare (type simple-string value tag)
            (type symbol style)
-           (optimize (speed 3) (safety 0) (space 0)))
+           (optimize (speed 3) (safety 1)))
   (cond
     ;; Quoted string
     ((member style '(YAML_SINGLE_QUOTED_SCALAR_STYLE YAML_DOUBLE_QUOTED_SCALAR_STYLE) :test 'eq)
      value)
     ;; Null
-    ((member value '("null" "Null" "NULL" "~") :test 'equal)
+    ((member value '("null" "Null" "NULL" "~") :test 'string=)
      *yaml-null*)
     ;; True
-    ((member value '("true" "True" "TRUE") :test 'equal)
+    ((member value '("true" "True" "TRUE") :test 'string=)
      t)
     ;; False
-    ((member value '("false" "False" "FALSE") :test 'equal)
+    ((member value '("false" "False" "FALSE") :test 'string=)
      nil)
     ;; Integer
     ((match-re "^([-+]?[0-9]+)$" value :return :index)
@@ -83,7 +82,7 @@
     ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :return :index)
      (strtod value))
     ;; NaN
-    ((member value '(".nan" ".NaN" ".NAN") :test 'equal)
+    ((match-re "^\\.(nan|NaN|NAN)$" value :return :index)
      *nan-double*)
     ;; +Inf
     ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" value :return :index)
