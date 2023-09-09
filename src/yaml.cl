@@ -1,32 +1,6 @@
 ;;;; yaml.cl
 (in-package #:yaml)
 
-(eval-when (:load-toplevel)
-  (let ((workdir (directory-namestring *load-pathname*)))
-    (load #.(string+ "libyaml" #\. (car *load-foreign-types*))
-          :foreign t
-          :search-list (list workdir    ; the distributed libyaml shared library
-                             (string+ workdir "../") ; for development environment
-                             ))))
-
-(def-foreign-call fopen ((pathname (* :char) simple-string)
-                         (mode (* :char) simple-string))
-                  :returning :foreign-address
-                  :strings-convert t
-                  :arg-checking nil)
-
-(def-foreign-call fclose ((fp :foreign-address))
-  :returning :int
-  :call-direct t
-  :arg-checking nil)
-
-(defmacro with-libyaml-parser ((parser-var) &body body)
-  `(with-stack-fobjects ((,parser-var 'yaml_parser_t))
-     (when (zerop (yaml_parser_initialize ,parser-var))
-       (error 'libyaml-error :from 'yaml_parser_initialize))
-     (unwind-protect (progn ,@body)
-       (yaml_parser_delete ,parser-var))))
-
 ;;; Conditions
 (define-condition yaml-error ()
   ()
@@ -63,6 +37,25 @@
         (problem_mark (fslot-value-typed 'yaml_parser_t :foreign parser 'problem_mark)))
     (error 'yaml-parser-error :message (native-to-string problem)
                               :mark (make-yaml-mark problem_mark))))
+
+;;; Internal implementation
+(defmacro with-libyaml-parser ((parser-var) &body body)
+  `(with-stack-fobjects ((,parser-var 'yaml_parser_t))
+     (when (zerop (yaml_parser_initialize ,parser-var))
+       (error 'libyaml-error :from 'yaml_parser_initialize))
+     (unwind-protect (progn ,@body)
+       (yaml_parser_delete ,parser-var))))
+
+(def-foreign-call fopen ((pathname (* :char) simple-string)
+                         (mode (* :char) simple-string))
+  :returning :foreign-address
+  :strings-convert t
+  :arg-checking nil)
+
+(def-foreign-call fclose ((fp :foreign-address))
+  :returning :int
+  :call-direct t
+  :arg-checking nil)
 
 (defun load-yaml-node (node document)
   (case (svref *enum-yaml-node-type* (fslot-value-typed 'yaml_node_t :c node 'type))
@@ -173,3 +166,11 @@
                            (read-yaml* parser))
                       (assert (zerop (fclose fp))))))
      else (read-yaml* (file-contents path))))
+
+(eval-when (:load-toplevel)
+  (let ((workdir (directory-namestring *load-pathname*)))
+    (load #.(string+ "libyaml" #\. (car *load-foreign-types*))
+          :foreign t
+          :search-list (list workdir    ; the distributed libyaml shared library
+                             (string+ workdir "../") ; for development environment
+                             ))))
