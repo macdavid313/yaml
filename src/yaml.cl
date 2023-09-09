@@ -96,15 +96,29 @@
     (setq tag (if (= 0 tag) nil (native-to-string tag))
           style (svref *enum-yaml-mapping-style* style))
     (loop with mapping = (make-hash-table :test 'equal
-                                          :rehash-threshold 1
-                                          :size (/ (- top start) #.(sizeof-fobject 'yaml_node_pair_t)))
+                                          :rehash-threshold 1.0
+                                          :size (1+ (/ (- top start) #.(sizeof-fobject 'yaml_node_pair_t))))
           for pair = start then (+ pair #.(sizeof-fobject 'yaml_node_pair_t))
           for k = (yaml_document_get_node document (fslot-value-typed 'yaml_node_pair_t :c pair 'key))
           for v = (yaml_document_get_node document (fslot-value-typed 'yaml_node_pair_t :c pair 'value))
           until (= pair top)
           do (setf (gethash (load-yaml-node k document) mapping)
                    (load-yaml-node v document))
-          finally (return mapping))))
+          finally (return (yaml-mapping-merge-maybe mapping)))))
+
+(defun yaml-mapping-merge-maybe (mapping)
+  (multiple-value-bind (mapping-to-merge exists-p) (gethash "<<" mapping)
+    (when exists-p
+      (check-type mapping-to-merge hash-table)
+      (remhash "<<" mapping)
+      (setq mapping-to-merge (yaml-mapping-merge-maybe mapping-to-merge))
+      (let (more? key-to-merge new-val)
+        (with-hash-table-iterator (gen mapping-to-merge)
+          (multiple-value-setq (more? key-to-merge new-val) (gen))
+          (while more?
+            (setf (gethash key-to-merge mapping) new-val)
+            (multiple-value-setq (more? key-to-merge new-val) (gen)))))))
+  mapping)
 
 (defun load-yaml (parser)
   (with-stack-fobjects ((document 'yaml_document_t))
