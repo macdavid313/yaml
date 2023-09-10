@@ -84,17 +84,21 @@
         (fslot-value cfg 'level)     #.(position 'fyet_error *enum-fy-error-type*)
         (fslot-value cfg 'colorize)  0))
 
-(defmacro with-parse-cfg ((cfg-var &key diag-cfg-var) &body body)
-  (let ((diag-cfg (if diag-cfg-var diag-cfg-var (gensym "diag-cfg")))
-        (diag (gensym "diag")))
-    `(with-stack-fobjects ((,diag-cfg 'fy_diag_cfg)
-                           (,cfg-var  'fy_parse_cfg))
+(defun initialize-parse-cfg (cfg diag)
+  (setf (fslot-value cfg 'search_path) #.(string-to-native "")
+        (fslot-value cfg 'flags)       #.(logior +FYPCF_COLLECT_DIAG+ +FYPCF_RESOLVE_DOCUMENT+)
+        (fslot-value cfg 'userdata)    0
+        (fslot-value cfg 'diag)        diag))
+
+(defmacro with-parsing-environment ((&key parse-cfg diag-cfg diag) &body body)
+  (let ((diag-cfg  (if diag-cfg diag-cfg (gensym "diag-cfg-")))
+        (diag      (if diag diag (gensym "diag-")))
+        (parse-cfg (if parse-cfg parse-cfg (gensym "parse-cfg-"))))
+    `(with-stack-fobjects ((,diag-cfg  'fy_diag_cfg)
+                           (,parse-cfg 'fy_parse_cfg))
        (initialize-diag-cfg ,diag-cfg)
        (let ((,diag (fy_diag_create ,diag-cfg)))
-         (setf (fslot-value ,cfg-var 'search_path) #.(string-to-native "")
-               (fslot-value ,cfg-var 'flags)       #.(logior +FYPCF_COLLECT_DIAG+ +FYPCF_RESOLVE_DOCUMENT+)
-               (fslot-value ,cfg-var 'userdata)    0
-               (fslot-value ,cfg-var 'diag)        ,diag)
+         (initialize-parse-cfg ,parse-cfg ,diag)
          (unwind-protect (progn ,@body)
            (free-fobject (fslot-value-typed 'fy_diag_output_buffer :aligned
                                             (fslot-value ,diag-cfg 'user)
@@ -171,9 +175,9 @@
   (:documentation "Read a YAML document from `input'."))
 
 (defmethod read-yaml ((str string))
-  (with-parse-cfg (cfg :diag-cfg-var diag-cfg)
+  (with-parsing-environment (:parse-cfg parse-cfg :diag-cfg diag-cfg)
     (with-native-string (input str :native-length-var len)
-      (let ((document (fy_document_build_from_string cfg input len)))
+      (let ((document (fy_document_build_from_string parse-cfg input len)))
         (when (= 0 document)
           (signal-yaml-parse-error diag-cfg))
         (load-yaml-document document)))))
@@ -184,16 +188,16 @@
             (if* (zerop fp)
                then (read-yaml (file-contents path))
                else (unwind-protect
-                         (with-parse-cfg (cfg :diag-cfg-var diag-cfg)
-                           (let ((document (fy_document_build_from_fp cfg fp)))
+                         (with-parsing-environment (:parse-cfg parse-cfg :diag-cfg diag-cfg)
+                           (let ((document (fy_document_build_from_fp parse-cfg fp)))
                              (when (= 0 document)
                                (signal-yaml-parse-error diag-cfg))
                              (load-yaml-document document)))
-                      ;; cleanup
-                      (assert (zerop (fclose fp))))))
+                      ;; close fp
+                      (fclose fp))))
      else (read-yaml (file-contents path))))
 
-;;; Load libfyaml shared library
+;; Load libfyaml shared library
 (eval-when (:load-toplevel)
   (let ((workdir (directory-namestring *load-pathname*)))
     (load #.(string+ "libfyaml" #\. (car *load-foreign-types*))
