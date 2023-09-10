@@ -15,7 +15,7 @@
                 (let ((files '(;; start of sys module
                                "src/package"
                                "src/ffi"
-                               ;; "src/values"
+                               "src/values"
                                "src/yaml"
                                ;; files list ends here
                                )))
