@@ -23,46 +23,69 @@
             :documentation "The error message (see `problem' field of `yaml_parser_t')."))
   (:report
    (lambda (condition stream)
-     (write-sequence stream (yaml-error-message condition)))))
-
-(def-foreign-call memcpy ((dest (* :void))
-                          (src (* :void))
-                          (count size_t))
-  :returning ((* :void))
-  :arg-checking nil
-  :call-direct t)
-
-(defun-foreign-callable fy_diag_output_error_fn ((diag :foreign-address)
-                                                 (user (:aligned fy_diag_output_buffer))
-                                                 (buf  (* :char))
-                                                 (len  size_t))
-  (declare (:returning :void))
-  (let ((user-buf (fslot-value-typed 'fy_diag_output_buffer :aligned user 'buf))
-        (size     (fslot-value-typed 'fy_diag_output_buffer :aligned user 'size))
-        (pos      (fslot-value-typed 'fy_diag_output_buffer :aligned user 'pos)))
-    ;; TODO: handlle resizing buffer
-    (memcpy (+ user-buf (* pos #.(sizeof-fobject :char))) buf len)
-    (setf (fslot-value-typed 'fy_diag_output_buffer :aligned user 'pos)
-          (+ pos len))))
+     (write-sequence (yaml-error-message condition) stream))))
 
 ;;; Internal implementation
 (defun make-diag-output-buffer ()
-  (let ((buffer (allocate-fobject 'fy_diag_output_buffer :aligned)))
-    (setf (fslot-value-typed 'fy_diag_output_buffer :aligned buffer 'buf)  (allocate-fobject :char :c 512)
-          (fslot-value-typed 'fy_diag_output_buffer :aligned buffer 'size) 256
-          (fslot-value-typed 'fy_diag_output_buffer :aligned buffer 'pos)  0)
-    buffer))
+  (let ((data (allocate-fobject 'fy_diag_output_buffer :aligned))
+        (size 1))
+    (declare (type fixnum data))
+    (setf (fslot-value-typed 'fy_diag_output_buffer :aligned data 'buf)  (allocate-fobject :char :c size)
+          (fslot-value-typed 'fy_diag_output_buffer :aligned data 'size) size
+          (fslot-value-typed 'fy_diag_output_buffer :aligned data 'pos)  0)
+    data))
+
+(defun resize-diag-output-buffer-maybe (data new-bytes-count)
+  (declare (type fixnum data new-bytes-count))
+  (let ((buf  (fslot-value-typed 'fy_diag_output_buffer :aligned data 'buf))
+        (pos  (fslot-value-typed 'fy_diag_output_buffer :aligned data 'pos))
+        (size (fslot-value-typed 'fy_diag_output_buffer :aligned data 'size))
+        (resize-p nil)
+        (new-buf nil))
+    (when (>= (+ pos new-bytes-count) size)
+      (setq resize-p t)
+      (while (>= (+ pos new-bytes-count) size)
+        (setq size (* size 2))))
+    (if* resize-p
+       then (setq new-buf (allocate-fobject :char :c size))
+            (memcpy new-buf buf pos)
+            (free-fobject buf)
+            (setf (fslot-value-typed 'fy_diag_output_buffer :aligned data 'buf)  new-buf
+                  (fslot-value-typed 'fy_diag_output_buffer :aligned data 'size) size)
+            new-buf
+       else buf)))
+
+(defun-foreign-callable fy_diag_output_error_fn ((diag :foreign-address)
+                                                 (data (:aligned fy_diag_output_buffer))
+                                                 (buf  (* :char))
+                                                 (len  size_t))
+  (declare (:returning :void)
+           (ignore diag))
+  (let ((user-buf (fslot-value-typed 'fy_diag_output_buffer :aligned data 'buf))
+        (pos      (fslot-value-typed 'fy_diag_output_buffer :aligned data 'pos)))
+    ;; resize if necessary
+    (setq user-buf (resize-diag-output-buffer-maybe data len))
+    ;; copy bytes and update pos
+    (memcpy (+ user-buf (* pos #.(sizeof-fobject :char))) buf len)
+    (setf (fslot-value-typed 'fy_diag_output_buffer :aligned data 'pos)
+          (+ pos len))))
+
+(defun signal-yaml-parse-error (diag-cfg)
+  (let* ((user (fslot-value diag-cfg 'user))
+         (buf (fslot-value-typed 'fy_diag_output_buffer :aligned user 'buf))
+         (pos (fslot-value-typed 'fy_diag_output_buffer :aligned user 'pos)))
+    (error 'yaml-parse-error :message (if (= pos 0) "unknown" (native-to-string buf :length pos)))))
 
 (defun initialize-diag-cfg (cfg)
   (fy_diag_cfg_default cfg)
   (setf (fslot-value cfg 'fp)        0
-        (fslot-value cfg 'output_fn) (register-foreign-callable 'fy_diag_output_error_fn :reuse nil)
+        (fslot-value cfg 'output_fn) #.(register-foreign-callable 'fy_diag_output_error_fn :reuse nil)
         (fslot-value cfg 'user)      (make-diag-output-buffer)
-        (fslot-value cfg 'level)     #.(position 'FYET_ERROR *enum-fy-error-type*)
+        (fslot-value cfg 'level)     #.(position 'fyet_error *enum-fy-error-type*)
         (fslot-value cfg 'colorize)  0))
 
-(defmacro with-parse-cfg ((cfg-var) &body body)
-  (let ((diag-cfg (gensym "diag-cfg"))
+(defmacro with-parse-cfg ((cfg-var &key diag-cfg-var) &body body)
+  (let ((diag-cfg (if diag-cfg-var diag-cfg-var (gensym "diag-cfg")))
         (diag (gensym "diag")))
     `(with-stack-fobjects ((,diag-cfg 'fy_diag_cfg)
                            (,cfg-var  'fy_parse_cfg))
@@ -74,6 +97,9 @@
                (fslot-value ,cfg-var 'userdata)    0
                (fslot-value ,cfg-var 'diag)        ,diag)
          (unwind-protect (progn ,@body)
+           (free-fobject (fslot-value-typed 'fy_diag_output_buffer :aligned
+                                            (fslot-value ,diag-cfg 'user)
+                                            'buf))
            (fy_diag_destroy ,diag))))))
 
 (defmacro with-yaml-parser ((parser-var) &body body)
@@ -87,12 +113,12 @@
   (:documentation "Read a YAML document from `input'."))
 
 (defmethod read-yaml ((str string))
-  (with-parse-cfg (cfg)
+  (with-parse-cfg (cfg :diag-cfg-var diag-cfg)
     (let ((document (fy_document_build_from_string cfg
                                                    (string-to-native str :null-terminate t)
                                                    -1)))
-      document
-      )))
+      (when (= 0 document)
+        (signal-yaml-parse-error diag-cfg)))))
 
 ;;; Load libfyaml shared library
 (eval-when (:load-toplevel)
