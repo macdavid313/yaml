@@ -310,19 +310,15 @@ corresponding call to fy_parser_destroy().")
   :call-direct t
   :documentation "Destroy a parser created earlier via fy_parser_create().")
 
-(def-foreign-call fy_parser_set_malloc_string ((parser :foreign-address)
-                                               (str (* :char))
-                                               (len size_t))
+(def-foreign-call fy_parser_set_string ((parser :foreign-address)
+                                        (str :foreign-address)
+                                        (len size_t))
   :returning :int
   :strings-convert nil
   :arg-checking nil
   :call-direct t
-  :documentation "Point the parser to the given (possible NULL terminated) string. Note that the
-string is expected to be allocated via malloc(3) and ownership is transferred to
-the created input. When the input is free’ed the memory will be automatically
-freed.
-
-In case of an error the string is not freed.")
+  :documentation "Point the parser to the given (NULL terminated) string. Note that while the
+parser is active the string must not go out of scope.")
 
 (def-foreign-call fy_parse_load_document ((parser :foreign-address))
   :returning :foreign-address

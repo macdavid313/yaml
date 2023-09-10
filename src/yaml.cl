@@ -197,6 +197,30 @@
                       (fclose fp))))
      else (read-yaml (file-contents path))))
 
+(defgeneric read-yaml* (input)
+  (:documentation "Read YAML document(s) into a list from `input'"))
+
+(defmethod read-yaml* ((str string))
+  (with-parsing-environment (:parse-cfg parse-cfg :diag-cfg diag-cfg)
+    (with-native-string (input str :native-length-var len)
+      (let ((parser (fy_parser_create parse-cfg)))
+        (when (= 0 parser)
+          (error 'libfyaml-error :from 'fy_parser_create))
+        (when (/= 0 (fy_parser_set_string parser input len))
+          (error 'libfyaml-error :from 'fy_parser_set_string))
+        (let (doc garbage documents root)
+          (unwind-protect
+               (while t
+                 (setq doc (fy_parse_load_document parser))
+                 (when (= 0 doc) (return))
+                 (setq root (fy_document_root doc))
+                 (push doc garbage)
+                 (push (load-yaml-node root) documents))
+            (dolist (d garbage)
+              (fy_parse_document_destroy parser d))
+            (fy_parser_destroy parser))
+          (nreverse documents))))))
+
 ;; Load libfyaml shared library
 (eval-when (:load-toplevel)
   (let ((workdir (directory-namestring *load-pathname*)))
