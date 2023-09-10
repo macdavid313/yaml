@@ -43,7 +43,7 @@
                                        (count size_t))
   :returning ((* :void))
   :arg-checking nil
-  :call-direct nil)
+  :call-direct t)
 
 (defun memcpy (dest-ptr src-ptr count)
   (declare (type #+32bit (unsigned-byte 32) #+64bit (unsigned-byte 64)
