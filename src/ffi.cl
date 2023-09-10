@@ -38,6 +38,27 @@
                (.strtod. ,s 0)))
      else forms))
 
+(def-foreign-call (.memcpy. "memcpy") ((dest (* :void))
+                                       (src (* :void))
+                                       (count size_t))
+  :returning ((* :void))
+  :arg-checking nil
+  :call-direct nil)
+
+(defun memcpy (dest-ptr src-ptr count)
+  (declare (type #+32bit (unsigned-byte 32) #+64bit (unsigned-byte 64)
+                 dest-ptr
+                 src-ptr))
+  (do ((i 0 (1+ i)))
+      ((= i count) nil)
+    (setf (fslot-value-typed :char :c (+ dest-ptr (* i #.(sizeof-fobject :char))))
+          (fslot-value-typed :char :c (+ src-ptr  (* i #.(sizeof-fobject :char)))))))
+
+;; (define-compiler-macro memcpy (dest-ptr src-ptr count &whole form)
+;;   (if* (get-entry-point "memcpy")
+;;      then `(.memcpy. ,dest-ptr ,src-ptr ,count)
+;;      else form))
+
 ;;; Enums
 (def-foreign-type fy_error_type :int)
 (defvar-nonbindable *enum-fy-error-type*
@@ -138,6 +159,7 @@
      ;; Column position (0 index based)
      (column :int)))
 
+;; a utility struct for collecting diag messages
 (def-foreign-type fy_diag_output_buffer
     (:struct
      (buf (* :char))
@@ -282,6 +304,15 @@ return the next document.")
   :call-direct t
   :documentation "Destroy a document created by fy_parse_load_document()")
 
+(def-foreign-call fy_parser_get_diag ((parser :foreign-address))
+  :returning :foreign-address
+  :strings-convert nil
+  :arg-checking nil
+  :call-direct t
+  :documentation "Return a pointer to the diagnostic object of a parser object. Note that the
+returned diag object has a reference taken so you should `fy_diag_unref()' it
+when you’re done with it.")
+
 (def-foreign-call fy_parser_get_document_state ((parser :foreign-address))
   :returning :foreign-address
   :strings-convert nil
@@ -295,57 +326,74 @@ during parsing.")
   :returning ((* fy_version))
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Retrieve the version stored in a document state object")
 
 (def-foreign-call fy_document_state_start_mark ((state :foreign-address))
   :returning ((* fy_mark))
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Return the document state’s start mark (if it exists). Note that purely
+synthetic documents do not contain one")
 
 (def-foreign-call fy_document_state_end_mark ((state :foreign-address))
   :returning ((* fy_mark))
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Return the document state’s end mark (if it exists). Note that purely synthetic
+documents do not contain one")
 
 (def-foreign-call fy_document_state_version_explicit ((state :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Find out if a document state object’s version was explicitly set in the
+document. Note that for synthetic documents this method returns false.")
 
 (def-foreign-call fy_document_state_tags_explicit ((state :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Find out if a document state object’s tags were explicitly set in the document.
+Note that for synthetic documents this method returns false.")
 
 (def-foreign-call fy_document_state_start_implicit ((state :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Find out if a document state object’s document was started implicitly. Note that
+for synthetic documents this method returns false.")
 
 (def-foreign-call fy_document_state_end_implicit ((state :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Find out if a document state object’s document was ended implicitly. Note that
+for synthetic documents this method returns false.")
 
 (def-foreign-call fy_document_state_tag_directive_iterate ((state :foreign-address)
                                                            (prevp (* (* :void))))
   :returning ((* fy_tag))
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "This method iterates over all the tag directives nodes in the document state
+object. The start of the iteration is signalled by a NULL in *prevp.")
 
 ;;; Document
 (def-foreign-call fy_document_create ((cfg (* fy_parse_cfg)))
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Create an empty document using the provided parser configuration. If NULL use
+the default parse configuration.")
 
 (def-foreign-call fy_document_build_from_string ((cfg (* fy_parse_cfg))
                                                  (str :foreign-address)
@@ -353,123 +401,154 @@ during parsing.")
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Create a document parsing the provided string as a YAML source.")
 
 (def-foreign-call fy_document_destroy ((document :foreign-address))
   :returning :void
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Destroy a document (along with all children documents)")
 
 (def-foreign-call fy_document_root ((document :foreign-address))
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
-
-(def-foreign-call fy_document_resolve ((document :foreign-address))
-  :returning :int
-  :strings-convert nil
-  :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Returns the root of the document. If the document is empty NULL will be returned
+instead.")
 
 (def-foreign-call fy_document_get_document_state ((document :foreign-address))
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Retrieve the document state object of a document.")
 
 ;;; Node
 (def-foreign-call fy_node_free ((node :foreign-address))
   :returning :int
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Recursively frees the given node releasing the memory it uses, removing any
+anchors on the document it contains, and releasing references on the tokens it
+contains.
+
+This method will return an error if the node is attached, or if not NULL it is
+not a member of a document.")
 
 (def-foreign-call fy_node_get_type ((node :foreign-address))
   :returning fy_node_type
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Retrieve the node type. It is one of FYNT_SCALAR, FYNT_SEQUENCE or FYNT_MAPPING.
+A NULL node argument is a FYNT_SCALAR.")
 
 (def-foreign-call fy_node_is_scalar ((node :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Convenience method for checking whether a node is a scalar.")
 
 (def-foreign-call fy_node_is_sequence ((node :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Convenience method for checking whether a node is a sequence.")
 
 (def-foreign-call fy_node_sequence_item_count ((node :foreign-address))
   :returning :int
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Get the item count of the sequence.")
 
 (def-foreign-call fy_node_sequence_get_by_index ((node :foreign-address)
                                                  (idx :int))
   :returning :int
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Retrieve a node in the sequence using it’s index. If index is positive or zero
+the count is from the start of the sequence, while if negative from the end.
+I.e. -1 returns the last item in the sequence.")
 
 (def-foreign-call fy_node_is_mapping ((node :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Convenience method for checking whether a node is a mapping.")
 
 (def-foreign-call fy_node_mapping_item_count ((node :foreign-address))
   :returning :int
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Get the count of the node pairs in the mapping.")
 
 (def-foreign-call fy_node_mapping_get_by_index ((node :foreign-address)
                                                 (idx :int))
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Retrieve a node pair in the mapping using its index. If index is positive or
+zero the count is from the start of the sequence, while if negative from the
+end. I.e. -1 returns the last node pair in the mapping.")
 
 (def-foreign-call fy_node_pair_key ((node_pair :foreign-address))
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "This method will return the node pair’s key. Note that this may be NULL, which
+is returned also in case the node pair argument is NULL, so you should protect
+against such a case.")
 
 (def-foreign-call fy_node_pair_value ((node_pair :foreign-address))
   :returning :foreign-address
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "This method will return the node pair’s value. Note that this may be NULL, which
+is returned also in case the node pair argument is NULL, so you should protect
+against such a case.")
 
 (def-foreign-call fy_node_is_alias ((node :foreign-address))
   :returning (:char boolean)
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Convenience method for checking whether a node is an alias.")
 
 (def-foreign-call fy_node_get_scalar ((node :foreign-address)
                                       (len (* size_t)))
   :returning ((* :char))
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "This method will return a pointer to the text of the scalar content of a node
+along with the length of it. Note that this pointer is not NULL terminated.")
 
 (def-foreign-call fy_node_get_tag ((node :foreign-address)
                                    (len (* size_t)))
   :returning ((* :char))
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "This method will return a pointer to the text of a tag along with the length of
+it. Note that this text is not NULL terminated.")
 
 (def-foreign-call fy_node_get_style ((node :foreign-address))
   :returning fy_node_style
   :strings-convert nil
   :arg-checking nil
-  :call-direct t)
+  :call-direct t
+  :documentation "Retrieve the node rendering style. If the node is NULL then the style is
+FYNS_PLAIN.")
