@@ -16,7 +16,7 @@
 *.wx64fsl
 *.wx32fsl
 
-yaml-*
+vendor
 
 *.dylib
 *.so
