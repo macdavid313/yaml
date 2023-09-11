@@ -26,49 +26,73 @@
 (defun yaml-null-p (x)
   (eq x *yaml-null*))
 
-(defun yaml-scalar-to-lisp (value tag style)
-  (declare (type simple-string value tag)
+(defun convert-yaml-scalar (scalar tag style)
+  (declare (type simple-string scalar)
+           (type (or simple-string nil) tag)
            (type symbol style)
+           (ignorable tag style)
            (optimize (speed 3) (safety 1)))
   (cond
     ;; Quoted string
     ((member style '(YAML_SINGLE_QUOTED_SCALAR_STYLE YAML_DOUBLE_QUOTED_SCALAR_STYLE) :test 'eq)
-     value)
+     scalar)
     ;; Null
-    ((member value '("null" "Null" "NULL" "~") :test 'string=)
+    ((member scalar '("null" "Null" "NULL" "~") :test 'string=)
      *yaml-null*)
     ;; True
-    ((member value '("true" "True" "TRUE") :test 'string=)
+    ((member scalar '("true" "True" "TRUE") :test 'string=)
      t)
     ;; False
-    ((member value '("false" "False" "FALSE") :test 'string=)
+    ((member scalar '("false" "False" "FALSE") :test 'string=)
      nil)
     ;; Integer
-    ((match-re "^([-+]?[0-9]+)$" value :return :index)
-     (multiple-value-bind (res pos) (parse-integer value :junk-allowed nil)
+    ((match-re "^([-+]?[0-9]+)$" scalar :return :index)
+     (multiple-value-bind (res pos) (parse-integer scalar :junk-allowed nil)
        (declare (ignore pos))
        res))
     ;; Octal digits
-    ((match-re "^0o([0-7]+)$" value :return :index)
-     (multiple-value-bind (res pos) (parse-integer value :start 2 :radix 8 :junk-allowed nil)
+    ((match-re "^0o([0-7]+)$" scalar :return :index)
+     (multiple-value-bind (res pos) (parse-integer scalar :start 2 :radix 8 :junk-allowed nil)
        (declare (ignore pos))
        res))
     ;; Hex digits
-    ((match-re "^0x([0-9a-fA-F]+)$" value :return :index)
-     (multiple-value-bind (res pos) (parse-integer value :start 2 :radix 16 :junk-allowed nil)
+    ((match-re "^0x([0-9a-fA-F]+)$" scalar :return :index)
+     (multiple-value-bind (res pos) (parse-integer scalar :start 2 :radix 16 :junk-allowed nil)
        (declare (ignore pos))
        res))
     ;; Floating-point number
-    ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" value :return :index)
-     (strtod value))
+    ((match-re "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?$" scalar :return :index)
+     (strtod scalar))
     ;; NaN
-    ((match-re "^\\.(nan|NaN|NAN)$" value :return :index)
+    ((match-re "^\\.(nan|NaN|NAN)$" scalar :return :index)
      *nan-double*)
     ;; +Inf
-    ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" value :return :index)
+    ((match-re "^[+]?(\\.inf|\\.Inf|\\.INF)$" scalar :return :index)
      *infinity-double*)
     ;; -Inf
-    ((match-re "^-(\\.inf|\\.Inf|\\.INF)$" value :return :index)
+    ((match-re "^-(\\.inf|\\.Inf|\\.INF)$" scalar :return :index)
      *negative-infinity-double*)
     ;; Just a string
-    (t value)))
+    (t scalar)))
+
+(deftype yaml-sequence ()
+  'simple-vector)
+
+(defun convert-yaml-sequence (sequence tag style)
+  (declare (type yaml-sequence sequence)
+           (type (or simple-string nil) tag)
+           (type symbol style)
+           (ignorable tag style)
+           (optimize (speed 3) (safety 1)))
+  sequence)
+
+(deftype yaml-mapping ()
+  'hash-table)
+
+(defun convert-yaml-mapping (mapping tag style)
+  (declare (type yaml-mapping mapping)
+           (type (or simple-string nil) tag)
+           (type symbol style)
+           (ignorable tag style)
+           (optimize (speed 3) (safety 1)))
+  mapping)

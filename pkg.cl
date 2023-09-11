@@ -5,8 +5,8 @@
   (:use #:cl
         #:excl
         #:util.string)
-  (:export #:compile-and-load-yaml
-           #:build-yaml))
+  (:export #:compile-and-load
+           #:build))
 
 (in-package #:yaml.pkg)
 
