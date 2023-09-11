@@ -106,7 +106,8 @@
        (let ((,diag (fy_diag_create ,diag-cfg)))
          (initialize-parse-cfg ,parse-cfg ,diag)
          (unwind-protect (progn ,@body)
-           (free-fobject (fslot-value-typed 'fy_diag_output_buffer :aligned
+           (free-fobject (fslot-value-typed 'fy_diag_output_buffer
+                                            :aligned
                                             (fslot-value ,diag-cfg 'user)
                                             'buf))
            (fy_diag_destroy ,diag))))))
