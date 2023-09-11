@@ -7,21 +7,6 @@
 ;;; Utilities from libc
 (def-foreign-type size_t :unsigned-nat)
 
-(def-foreign-call fopen ((pathname (* :char) simple-string)
-                         (mode (* :char) simple-string))
-  :returning :foreign-address
-  :strings-convert t
-  :arg-checking nil
-  :documentation " Opens the file whose name is specified in the parameter filename and associates
- it with a stream that can be identified in future operations by the FILE
- pointer returned.")
-
-(def-foreign-call fclose ((fp :foreign-address))
-  :returning :int
-  :call-direct t
-  :arg-checking nil
-  :documentation "Closes the file associated with the `fp' and disassociates it.")
-
 (def-foreign-call (.strtod. "strtod") ((str :foreign-address)
                                        (endptr :foreign-address))
   :returning :double
@@ -284,9 +269,9 @@ after this call.")
   :documentation "Set a diagnostic object’s colorize option")
 
 (def-foreign-call fy_diag_got_error ((diag :foreign-address))
-  :returning :char
+  :returning (:char boolean)
   :arg-checking nil
-  :call-direct nil
+  :call-direct t
   :documentation "Tests whether an error diagnostic has been produced.")
 
 (def-foreign-call fy_diag_cfg_default ((cfg :foreign-address))
@@ -319,6 +304,17 @@ corresponding call to fy_parser_destroy().")
   :call-direct t
   :documentation "Point the parser to the given (NULL terminated) string. Note that while the
 parser is active the string must not go out of scope.")
+
+
+(def-foreign-call fy_parser_set_input_file ((parser :foreign-address)
+                                            (file :foreign-address))
+  :returning :int
+  :strings-convert nil
+  :arg-checking nil
+  :call-direct t
+  :documentation "Point the parser to the given file for processing. The file is located by
+honoring the search path of the configuration set by the earlier call to
+fy_parser_create(). While the parser is in use the file will must be available.")
 
 (def-foreign-call fy_parse_load_document ((parser :foreign-address))
   :returning :foreign-address
@@ -436,6 +432,14 @@ the default parse configuration.")
   :arg-checking nil
   :call-direct t
   :documentation "Create a document parsing the provided string as a YAML source.")
+
+(def-foreign-call fy_document_build_from_file ((cfg (* fy_parse_cfg))
+                                               (file :foreign-address))
+  :returning :foreign-address
+  :strings-convert nil
+  :arg-checking nil
+  :call-direct t
+  :documentation "Create a document parsing the provided file as a YAML source.")
 
 (def-foreign-call fy_document_build_from_fp ((cfg (* fy_parse_cfg))
                                              (fp :foreign-address))

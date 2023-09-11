@@ -70,11 +70,12 @@
     (setf (fslot-value-typed 'fy_diag_output_buffer :aligned data 'pos)
           (+ pos len))))
 
-(defun signal-yaml-parse-error (diag-cfg)
-  (let* ((user (fslot-value diag-cfg 'user))
-         (buf (fslot-value-typed 'fy_diag_output_buffer :aligned user 'buf))
-         (pos (fslot-value-typed 'fy_diag_output_buffer :aligned user 'pos)))
-    (error 'yaml-parse-error :message (if (= pos 0) "unknown" (native-to-string buf :length pos)))))
+(defun signal-yaml-parse-error-maybe (diag cfg)
+  (when (fy_diag_got_error diag)
+    (let* ((user (fslot-value cfg 'user))
+           (buf (fslot-value-typed 'fy_diag_output_buffer :aligned user 'buf))
+           (pos (fslot-value-typed 'fy_diag_output_buffer :aligned user 'pos)))
+      (error 'yaml-parse-error :message (if (= pos 0) "unknown" (native-to-string buf :length pos))))))
 
 (defun initialize-diag-cfg (cfg)
   (fy_diag_cfg_default cfg)
@@ -90,7 +91,7 @@
         (fslot-value cfg 'userdata)    0
         (fslot-value cfg 'diag)        diag))
 
-(defmacro with-parsing-environment ((&key parse-cfg diag-cfg diag) &body body)
+(defmacro with-parsing-stack ((&key parse-cfg diag-cfg diag) &body body)
   (let ((diag-cfg  (if diag-cfg diag-cfg (gensym "diag-cfg-")))
         (diag      (if diag diag (gensym "diag-")))
         (parse-cfg (if parse-cfg parse-cfg (gensym "parse-cfg-"))))
@@ -105,12 +106,12 @@
                                             'buf))
            (fy_diag_destroy ,diag))))))
 
-(defun load-yaml-document (document)
+(defun load-yaml-document (document &key finalizer)
   (let ((root (fy_document_root document)))
     (if* (= root 0)
-       then 'YAML_EMPTY_DOCUMENT
+       then *yaml-null*
        else (unwind-protect (load-yaml-node root)
-              (fy_document_destroy document)))))
+              (funcall finalizer document)))))
 
 (defun load-yaml-node (node)
   (case (fy_node_get_type node)
@@ -164,56 +165,70 @@
                  (load-yaml-node v))
         finally (return (convert-yaml-mapping mapping tag style))))
 
+(defun make-yaml-parser (cfg)
+  (let ((parser (fy_parser_create cfg)))
+    (when (= 0 parser)
+      (error 'libfyaml-error :from 'fy_parser_create))
+    parser))
+
+(defun read-yaml-from-document (document diag diag-cfg)
+  (signal-yaml-parse-error-maybe diag diag-cfg)
+  (if* (= 0 document)
+     then *yaml-null*
+     else (load-yaml-document document :finalizer 'fy_document_destroy)))
+
+(defun read-yaml*-from-parser (parser diag diag-cfg)
+  (unwind-protect
+       (flet ((next-document ()
+                (let ((doc (fy_parse_load_document parser)))
+                  (signal-yaml-parse-error-maybe diag diag-cfg)
+                  doc))
+              (finalizer (doc)
+                (fy_parse_document_destroy parser doc)))
+         (loop for document = (next-document)
+               until (= 0 document)
+               collect (load-yaml-document document :finalizer #'finalizer)))
+    ;; destroy parser
+    (fy_parser_destroy parser)))
+
 ;;; Top-level APIs
 (defgeneric read-yaml (input)
   (:documentation "Read a YAML document from `input'."))
 
 (defmethod read-yaml ((str string))
-  (with-parsing-environment (:parse-cfg parse-cfg :diag-cfg diag-cfg)
+  (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
     (with-native-string (input str :native-length-var len)
-      (let ((document (fy_document_build_from_string parse-cfg input len)))
-        (when (= 0 document)
-          (signal-yaml-parse-error diag-cfg))
-        (load-yaml-document document)))))
+      (read-yaml-from-document (fy_document_build_from_string parse-cfg input len)
+                               diag
+                               diag-cfg))))
 
-(defmethod read-yaml ((path pathname))
-  (if* (and (get-entry-point "fopen") (get-entry-point "fclose"))
-     then (let ((fp (fopen (namestring path) "r")))
-            (if* (zerop fp)
-               then (read-yaml (file-contents path))
-               else (unwind-protect
-                         (with-parsing-environment (:parse-cfg parse-cfg :diag-cfg diag-cfg)
-                           (let ((document (fy_document_build_from_fp parse-cfg fp)))
-                             (when (= 0 document)
-                               (signal-yaml-parse-error diag-cfg))
-                             (load-yaml-document document)))
-                      ;; close fp
-                      (fclose fp))))
-     else (read-yaml (file-contents path))))
+(defmethod read-yaml ((file pathname))
+  (with-native-string (file (namestring file))
+    (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
+      (setf (fslot-value parse-cfg 'search_path) 0)
+      (read-yaml-from-document (fy_document_build_from_file parse-cfg file)
+                               diag
+                               diag-cfg))))
 
 (defgeneric read-yaml* (input)
   (:documentation "Read YAML document(s) into a list from `input'"))
 
 (defmethod read-yaml* ((str string))
-  (with-parsing-environment (:parse-cfg parse-cfg :diag-cfg diag-cfg)
+  (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
     (with-native-string (input str :native-length-var len)
-      (let ((parser (fy_parser_create parse-cfg)))
-        (when (= 0 parser)
-          (error 'libfyaml-error :from 'fy_parser_create))
-        (when (/= 0 (fy_parser_set_string parser input len))
+      (let ((parser (make-yaml-parser parse-cfg)))
+        (when (= -1 (fy_parser_set_string parser input len))
           (error 'libfyaml-error :from 'fy_parser_set_string))
-        (let (doc garbage documents root)
-          (unwind-protect
-               (while t
-                 (setq doc (fy_parse_load_document parser))
-                 (when (= 0 doc) (return))
-                 (setq root (fy_document_root doc))
-                 (push doc garbage)
-                 (push (load-yaml-node root) documents))
-            (dolist (d garbage)
-              (fy_parse_document_destroy parser d))
-            (fy_parser_destroy parser))
-          (nreverse documents))))))
+        (read-yaml*-from-parser parser diag diag-cfg)))))
+
+(defmethod read-yaml* ((file pathname))
+  (with-native-string (file (namestring file))
+    (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
+      (setf (fslot-value parse-cfg 'search_path) 0)
+      (let ((parser (make-yaml-parser parse-cfg)))
+        (when (= -1 (fy_parser_set_input_file parser file))
+          (error 'libyaml-error :from 'fy_parser_set_input_file))
+        (read-yaml*-from-parser parser diag diag-cfg)))))
 
 ;; Load libfyaml shared library
 (eval-when (:load-toplevel)
