@@ -5,34 +5,34 @@
   (:use #:cl
         #:excl
         #:util.string)
-  (:export #:compile-and-load-yaml
-           #:build-yaml))
+  (:export #:compile-and-load
+           #:build))
 
 (in-package #:yaml.pkg)
 
 (eval-when (:load-toplevel :execute)
   (defparameter *yaml-src-files*
-                (let ((files '(;; start of sys module
-                               "src/package"
-                               "src/ffi"
-                               "src/values"
-                               "src/yaml"
-                               ;; files list ends here
-                               )))
-                  (mapcar (lambda (file)
-                            (string+ (directory-namestring *load-pathname*) file))
-                          files)))
+    (let ((files '(;; start of sys module
+                   "src/package"
+                   "src/ffi"
+                   "src/values"
+                   "src/yaml"
+                   ;; files list ends here
+                   )))
+      (mapcar (lambda (file)
+                (string+ (directory-namestring *load-pathname*) file))
+              files)))
 
   (defparameter *yaml-fasl-output*
-                (string+ (directory-namestring *load-pathname*) "yaml.fasl")))
+    (string+ (directory-namestring *load-pathname*) "yaml.fasl")))
 
-(defun compile-and-load-yaml ()
+(defun compile-and-load ()
   (dolist (file *yaml-src-files*)
     (compile-file (string+ file ".cl")
                   :load-after-compile t)))
 
-(defun build-yaml ()
-  (compile-and-load-yaml)
+(defun build ()
+  (compile-and-load)
   (with-open-file (out *yaml-fasl-output* :direction :output
                                           :if-exists :supersede
                                           :if-does-not-exist :create)

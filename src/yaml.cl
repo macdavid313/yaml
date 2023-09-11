@@ -105,12 +105,6 @@
                                             'buf))
            (fy_diag_destroy ,diag))))))
 
-(defmacro with-yaml-parser ((parser-var) &body body)
-  (with-parse-cfg (cfg)
-    `(let ((,parser-var (fy_parser_create ,cfg)))
-       (unwind-protect (progn ,@body)
-         (fy_parser_destroy ,parser-var)))))
-
 (defun load-yaml-document (document)
   (let ((root (fy_document_root document)))
     (if* (= root 0)

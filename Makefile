@@ -4,30 +4,26 @@
 # @file
 # @version 0.1
 
-LIBYAML_VERSION=0.2.5
+LIBFYAML_VERSION=0.8
 LISP=
 
-.PHONY: libyaml_src
-libyaml_src:
-	@if [ -d yaml-$(LIBYAML_VERSION) ]; then \
-		echo yaml-$(LIBYAML_VERSION) already exists; \
-	else \
-		curl -L https://github.com/yaml/libyaml/releases/download/$(LIBYAML_VERSION)/yaml-$(LIBYAML_VERSION).tar.gz | tar xz; \
-	fi
+vendor:
+	mkdir -p vendor;
+	curl -L https://github.com/pantoniou/libfyaml/releases/download/v${LIBFYAML_VERSION}/libfyaml-${LIBFYAML_VERSION}.tar.gz | tar xz -C vendor
 
-libyaml.%: libyaml_src
-	@cd yaml-$(LIBYAML_VERSION)/; \
-		mkdir -p build/; \
-		./configure --prefix=$(shell pwd)/yaml-$(LIBYAML_VERSION)/build --enable-static=no; \
-		make; \
+libfyaml.%: vendor
+	mkdir vendor/build
+	@cd vendor/libfyaml-$(LIBFYAML_VERSION)/; \
+		./configure --prefix=$(shell pwd)/vendor/build --enable-static=no --enable-debug=no; \
+		make -j; \
 		make install
-	cp -L yaml-$(LIBYAML_VERSION)/build/lib/$@ ./
+	cp -L vendor/build/lib/$@ ./
 
 yaml.fasl:
-	@$(LISP) -q -L pkg.cl -e '(yaml.pkg:build-yaml)' --kill
+	@$(LISP) -q -L pkg.cl -e '(yaml.pkg:build)' --kill
 
 clean:
-	rm -rf yaml-$(LIBYAML_VERSION)
+	rm -rf vendor
 	find . -type f -name "*.fasl" -delete
 	find . -type f -name "*.so" -delete
 	find . -type f -name "*.dll" -delete
