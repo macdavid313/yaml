@@ -2,7 +2,7 @@
 (in-package #:yaml)
 
 ;;; Conditions
-(define-condition yaml-error ()
+(define-condition yaml-error (error)
   ()
   (:documentation "The base class of all YAML conditions."))
 
@@ -10,7 +10,7 @@
   ((from :reader libyaml-error-from
          :initarg :from
          :type symbol
-         :documentation "The C function from libyaml that causes the error."))
+         :documentation "The C function from libfyaml that causes the error."))
   (:report
    (lambda (condition stream)
      (format stream "Error encountered whiling calling '~a"
@@ -20,7 +20,7 @@
   ((message :reader yaml-error-message
             :initarg :message
             :type simple-string
-            :documentation "The error message (see `problem' field of `yaml_parser_t')."))
+            :documentation "The error message collected from fy_diag."))
   (:report
    (lambda (condition stream)
      (write-sequence (yaml-error-message condition) stream))))
@@ -29,7 +29,7 @@
 (defun make-diag-output-buffer ()
   (let ((data (allocate-fobject 'fy_diag_output_buffer :aligned))
         (size 1))
-    (declare (type fixnum data))
+    (declare (type fixnum data size))
     (setf (fslot-value-typed 'fy_diag_output_buffer :aligned data 'buf)  (allocate-fobject :char :c size)
           (fslot-value-typed 'fy_diag_output_buffer :aligned data 'size) size
           (fslot-value-typed 'fy_diag_output_buffer :aligned data 'pos)  0)
@@ -71,13 +71,17 @@
           (+ pos len))))
 
 (defun signal-yaml-parse-error-maybe (diag cfg)
+  "Check if diag got any error and raise it if it exists."
   (when (fy_diag_got_error diag)
     (let* ((user (fslot-value cfg 'user))
            (buf (fslot-value-typed 'fy_diag_output_buffer :aligned user 'buf))
            (pos (fslot-value-typed 'fy_diag_output_buffer :aligned user 'pos)))
-      (error 'yaml-parse-error :message (if (= pos 0) "unknown" (native-to-string buf :length pos))))))
+      (error 'yaml-parse-error
+             ;; TODO: handle "unknown" reason better
+             :message (if (= pos 0) "unknown" (native-to-string buf :length pos))))))
 
 (defun initialize-diag-cfg (cfg)
+  "Initialize a `diag_cfg' instance."
   (fy_diag_cfg_default cfg)
   (setf (fslot-value cfg 'fp)        0
         (fslot-value cfg 'output_fn) #.(register-foreign-callable 'fy_diag_output_error_fn :reuse nil)
@@ -86,12 +90,13 @@
         (fslot-value cfg 'colorize)  0))
 
 (defun initialize-parse-cfg (cfg diag)
+  "Initialize a `parse_cfg' instance."
   (setf (fslot-value cfg 'search_path) #.(string-to-native "")
         (fslot-value cfg 'flags)       #.(logior +FYPCF_COLLECT_DIAG+ +FYPCF_RESOLVE_DOCUMENT+)
         (fslot-value cfg 'userdata)    0
         (fslot-value cfg 'diag)        diag))
 
-(defmacro with-parsing-stack ((&key parse-cfg diag-cfg diag) &body body)
+(defmacro with-parsing-stack ((&key diag-cfg diag parse-cfg) &body body)
   (let ((diag-cfg  (if diag-cfg diag-cfg (gensym "diag-cfg-")))
         (diag      (if diag diag (gensym "diag-")))
         (parse-cfg (if parse-cfg parse-cfg (gensym "parse-cfg-"))))
@@ -172,12 +177,16 @@
     parser))
 
 (defun read-yaml-from-document (document diag diag-cfg)
+  "Read a YAML document from the `document'. Note that the ownership of `document'
+has been transferred to here."
   (signal-yaml-parse-error-maybe diag diag-cfg)
   (if* (= 0 document)
      then *yaml-null*
      else (load-yaml-document document :finalizer 'fy_document_destroy)))
 
 (defun read-yaml*-from-parser (parser diag diag-cfg)
+  "Read multiple YAML documents from the `parser'. Note that the ownership of
+parser has been transferred to here."
   (unwind-protect
        (flet ((next-document ()
                 (let ((doc (fy_parse_load_document parser)))
