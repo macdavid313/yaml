@@ -26,13 +26,13 @@
   (defparameter *yaml-fasl-output*
                 (string+ (directory-namestring *load-pathname*) "yaml.fasl")))
 
-(defun compile-and-load-yaml ()
+(defun compile-and-load ()
   (dolist (file *yaml-src-files*)
     (compile-file (string+ file ".cl")
                   :load-after-compile t)))
 
-(defun build-yaml ()
-  (compile-and-load-yaml)
+(defun build ()
+  (compile-and-load)
   (with-open-file (out *yaml-fasl-output* :direction :output
                                           :if-exists :supersede
                                           :if-does-not-exist :create)

@@ -4,6 +4,39 @@
 (eval-when (:compile-toplevel)
   (declaim (optimize (speed 3) (safety 0) (space 0))))
 
+;;; Utilities from libc
+(def-foreign-call fopen ((pathname (* :char) simple-string)
+                         (mode (* :char) simple-string))
+  :returning :foreign-address
+  :strings-convert t
+  :arg-checking nil)
+
+(def-foreign-call fclose ((fp :foreign-address))
+  :returning :int
+  :call-direct t
+  :arg-checking nil)
+
+(def-foreign-call (.strtod. "strtod") ((str :foreign-address)
+                                       (endptr :foreign-address))
+  :returning :double
+  :strings-convert nil
+  :call-direct t
+  :arg-checking nil)
+
+(defun strtod (str)
+  (declare (type simple-string str)
+           (optimize (speed 3) (safety 0) (space 0)))
+  (let ((*read-default-float-format* 'double-float))
+    (the double-float (read-from-string str))))
+
+(define-compiler-macro strtod (str &whole forms)
+  (if* (get-entry-point "strtod")
+     then (let ((s (gensym "s")))
+            `(with-native-string (,s ,str)
+               (.strtod. ,s 0)))
+     else forms))
+
+;;; libyaml
 (def-foreign-call yaml_get_version_string (:void)
   :documentation "Get the library version as a string."
   :returning ((* :char) simple-string)

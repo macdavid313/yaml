@@ -2,8 +2,8 @@
 (in-package #:yaml)
 
 (defstruct (yaml-mark (:constructor mk-yaml-mark))
-  (index 0 :type fixnum)
-  (line 0 :type fixnum)
+  (index  0 :type fixnum)
+  (line   0 :type fixnum)
   (column 0 :type fixnum))
 
 (defun make-yaml-mark (ptr)
@@ -25,26 +25,6 @@
 
 (defun yaml-null-p (x)
   (eq x *yaml-null*))
-
-(def-foreign-call (.strtod. "strtod") ((str :foreign-address)
-                                       (endptr :foreign-address))
-  :returning :double
-  :strings-convert nil
-  :call-direct t
-  :arg-checking nil)
-
-(defun strtod (str)
-  (declare (type simple-string str)
-           (optimize (speed 3) (safety 0) (space 0)))
-  (let ((*read-default-float-format* 'double-float))
-    (the double-float (read-from-string str))))
-
-(define-compiler-macro strtod (str &whole forms)
-  (if* (get-entry-point "strtod")
-     then (let ((s (gensym "s")))
-            `(with-native-string (,s ,str)
-               (.strtod. ,s 0)))
-     else forms))
 
 (defun yaml-scalar-to-lisp (value tag style)
   (declare (type simple-string value tag)

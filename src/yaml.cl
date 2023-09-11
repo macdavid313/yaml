@@ -2,7 +2,7 @@
 (in-package #:yaml)
 
 ;;; Conditions
-(define-condition yaml-error ()
+(define-condition yaml-error (error)
   ()
   (:documentation "The base class of all YAML conditions."))
 
@@ -45,17 +45,6 @@
        (error 'libyaml-error :from 'yaml_parser_initialize))
      (unwind-protect (progn ,@body)
        (yaml_parser_delete ,parser-var))))
-
-(def-foreign-call fopen ((pathname (* :char) simple-string)
-                         (mode (* :char) simple-string))
-  :returning :foreign-address
-  :strings-convert t
-  :arg-checking nil)
-
-(def-foreign-call fclose ((fp :foreign-address))
-  :returning :int
-  :call-direct t
-  :arg-checking nil)
 
 (defun load-yaml-node (node document)
   (case (svref *enum-yaml-node-type* (fslot-value-typed 'yaml_node_t :c node 'type))
@@ -181,6 +170,7 @@
                       (assert (zerop (fclose fp))))))
      else (read-yaml* (file-contents path))))
 
+;;; load libyaml shared library
 (eval-when (:load-toplevel)
   (let ((workdir (directory-namestring *load-pathname*)))
     (load #.(string+ "libyaml" #\. (car *load-foreign-types*))
