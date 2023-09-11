@@ -192,43 +192,23 @@
     (fy_parser_destroy parser)))
 
 ;;; Top-level APIs
-(defgeneric read-yaml (input)
-  (:documentation "Read a YAML document from `input'."))
+(defun read-yaml-string (str &key multiple)
+  (with-parsing-stack (:diag-cfg diag-cfg :diag diag :parse-cfg parse-cfg)
+    (if* multiple
+       then (with-native-string (input str :native-length-var len)
+              (let ((parser (make-yaml-parser parse-cfg)))
+                (when (= -1 (fy_parser_set_string parser input len))
+                  (error 'libfyaml-error :from 'fy_parser_set_string))
+                (read-yaml*-from-parser parser diag diag-cfg)))
+       else (with-native-string (input str :native-length-var len)
+              (read-yaml-from-document (fy_document_build_from_string parse-cfg input len)
+                                       diag
+                                       diag-cfg)))))
 
-(defmethod read-yaml ((str string))
-  (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
-    (with-native-string (input str :native-length-var len)
-      (read-yaml-from-document (fy_document_build_from_string parse-cfg input len)
-                               diag
-                               diag-cfg))))
-
-(defmethod read-yaml ((file pathname))
-  (with-native-string (file (namestring file))
-    (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
-      (setf (fslot-value parse-cfg 'search_path) 0)
-      (read-yaml-from-document (fy_document_build_from_file parse-cfg file)
-                               diag
-                               diag-cfg))))
-
-(defgeneric read-yaml* (input)
-  (:documentation "Read YAML document(s) into a list from `input'"))
-
-(defmethod read-yaml* ((str string))
-  (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
-    (with-native-string (input str :native-length-var len)
-      (let ((parser (make-yaml-parser parse-cfg)))
-        (when (= -1 (fy_parser_set_string parser input len))
-          (error 'libfyaml-error :from 'fy_parser_set_string))
-        (read-yaml*-from-parser parser diag diag-cfg)))))
-
-(defmethod read-yaml* ((file pathname))
-  (with-native-string (file (namestring file))
-    (with-parsing-stack (:parse-cfg parse-cfg :diag-cfg diag-cfg :diag diag)
-      (setf (fslot-value parse-cfg 'search_path) 0)
-      (let ((parser (make-yaml-parser parse-cfg)))
-        (when (= -1 (fy_parser_set_input_file parser file))
-          (error 'libyaml-error :from 'fy_parser_set_input_file))
-        (read-yaml*-from-parser parser diag diag-cfg)))))
+(defun read-yaml-file (filespec &key multiple (external-format :default))
+  (read-yaml-string (file-contents filespec :element-type '(unsigned-byte 8)
+                                            :external-format external-format)
+                    :multiple multiple))
 
 ;; Load libfyaml shared library
 (eval-when (:load-toplevel)
