@@ -11,13 +11,13 @@ vendor:
 	mkdir -p vendor
 	curl -L https://github.com/yaml/libyaml/releases/download/$(LIBYAML_VERSION)/yaml-$(LIBYAML_VERSION).tar.gz | tar xz -C vendor
 
-libyaml.%: vendor
+yaml.%: vendor
 	mkdir -p vendor/build
 	@cd vendor/yaml-$(LIBYAML_VERSION)/; \
 		./configure --prefix=$(shell pwd)/vendor/build --enable-static=no; \
 		make; \
 		make install
-	cp -L vendor/build/lib/$@ ./
+	cp -L vendor/build/lib/$@ ./$@
 
 yaml.fasl:
 	@$(LISP) -q -L pkg.cl -e '(yaml.pkg:build-yaml)' --kill
