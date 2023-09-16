@@ -12,7 +12,7 @@
   (declare (type simple-string scalar)
            (type (or simple-string nil) tag)
            (type symbol style)
-           (ignorable tag style)
+           (ignorable tag)
            (optimize (speed 3) (safety 1)))
   (cond
    ;; Quoted string
