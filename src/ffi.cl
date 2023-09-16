@@ -5,6 +5,8 @@
   (declaim (optimize (speed 3) (safety 0) (space 0))))
 
 ;;; Utilities from libc
+(def-foreign-type size_t :unsigned-nat)
+
 (def-foreign-call fopen ((pathname (* :char) simple-string)
                          (mode (* :char) simple-string))
   :returning :foreign-address
@@ -35,6 +37,27 @@
             `(with-native-string (,s ,str)
                (.strtod. ,s 0)))
      else forms))
+
+(def-foreign-call (.memcpy. "memcpy") ((dest (* :void))
+                                       (src (* :void))
+                                       (count size_t))
+  :returning ((* :void))
+  :arg-checking nil
+  :call-direct t)
+
+(defun memcpy (dest-ptr src-ptr count)
+  (declare (type #+32bit (unsigned-byte 32) #+64bit (unsigned-byte 64)
+                 dest-ptr
+                 src-ptr))
+  (do ((i 0 (1+ i)))
+      ((= i count) nil)
+    (setf (fslot-value-typed :char :c (+ dest-ptr (* i #.(sizeof-fobject :char))))
+          (fslot-value-typed :char :c (+ src-ptr  (* i #.(sizeof-fobject :char)))))))
+
+(define-compiler-macro memcpy (dest-ptr src-ptr count &whole form)
+  (if* (get-entry-point "memcpy")
+     then `(.memcpy. ,dest-ptr ,src-ptr ,count)
+     else form))
 
 ;;; libyaml
 (def-foreign-call yaml_get_version_string (:void)
@@ -109,8 +132,6 @@
       ;; Cannot emit a YAML stream.
       YAML_EMITTER_ERROR)
   "Many bad things could happen with the parser and emitter.")
-
-(def-foreign-type size_t :unsigned-nat)
 
 (def-foreign-type yaml_mark_t
     (:struct
