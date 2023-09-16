@@ -11,7 +11,7 @@ vendor:
 	mkdir -p vendor
 	curl -L https://github.com/yaml/libyaml/releases/download/$(LIBYAML_VERSION)/yaml-$(LIBYAML_VERSION).tar.gz | tar xz -C vendor
 
-yaml.%: vendor
+libyaml.%: vendor
 	mkdir -p vendor/build
 	@cd vendor/yaml-$(LIBYAML_VERSION)/; \
 		./configure --prefix=$(shell pwd)/vendor/build --enable-static=no; \

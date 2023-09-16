@@ -354,7 +354,10 @@
 ;;; load libyaml shared library
 (eval-when (:load-toplevel)
   (let ((workdir (directory-namestring *load-pathname*)))
-    (load #.(string+ "yaml" #\. (car *load-foreign-types*))
+    (load #.(string+ #-windows "lib"
+                     "yaml"
+                     #\.
+                     (car *load-foreign-types*))
           :foreign t
           :search-list (list workdir    ; the distributed libyaml shared library
                              (string+ workdir "../") ; for development environment
