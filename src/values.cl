@@ -1,24 +1,6 @@
 ;;;; values.cl
 (in-package #:yaml)
 
-(defstruct (yaml-mark (:constructor mk-yaml-mark))
-  (index  0 :type fixnum)
-  (line   0 :type fixnum)
-  (column 0 :type fixnum))
-
-(defun make-yaml-mark (ptr)
-  (mk-yaml-mark :index  (fslot-value-typed 'yaml_mark_t :c ptr 'index)
-                :line   (fslot-value-typed 'yaml_mark_t :c ptr 'line)
-                :column (fslot-value-typed 'yaml_mark_t :c ptr 'column)))
-
-(defstruct yaml-version-directive
-  (major 0 :type fixnum :read-only t)
-  (minor 0 :type fixnum :read-only t))
-
-(defstruct yaml-tag-directive
-  (handle "" :type simple-string :read-only t)
-  (prefix "" :type simple-string :read-only t))
-
 (defparameter *yaml-null* nil
   "A special variable that determines the value that corresponds to a YAML
 \"null\" (or empty scalar) value. It is nil by default.")
@@ -75,6 +57,8 @@
    ;; Just a string
    (t scalar)))
 
+(deftype yaml-sequence () 'simple-vector)
+
 (defun convert-yaml-sequence (sequence tag style)
   (declare (type yaml-sequence sequence)
            (type (or simple-string nil) tag)
@@ -82,6 +66,8 @@
            (ignorable tag style)
            (optimize (speed 3) (safety 1)))
   sequence)
+
+(deftype yaml-mapping () 'hash-table)
 
 (defun convert-yaml-mapping (mapping tag style)
   (declare (type yaml-mapping mapping)
