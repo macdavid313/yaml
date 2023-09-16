@@ -16,6 +16,16 @@
      (format stream "Error encountered whiling calling '~a"
              (libyaml-error-from condition)))))
 
+(defstruct (yaml-mark (:constructor mk-yaml-mark))
+  index
+  line
+  column)
+
+(defun make-yaml-mark (ptr)
+  (mk-yaml-mark :index  (fslot-value-typed 'yaml_mark_t :c ptr 'index)
+                :line   (fslot-value-typed 'yaml_mark_t :c ptr 'line)
+                :column (fslot-value-typed 'yaml_mark_t :c ptr 'column)))
+
 (define-condition yaml-parser-error (yaml-error)
   ((message :reader yaml-parser-error-message
             :initarg :message
@@ -33,15 +43,29 @@
              (yaml-parser-error-message condition)))))
 
 (defun signal-yaml-parser-error (parser)
-  (let ((problem (fslot-value-typed 'yaml_parser_t :foreign parser 'problem))
-        (problem_mark (fslot-value-typed 'yaml_parser_t :foreign parser 'problem_mark)))
+  (let ((problem      (fslot-value parser 'problem))
+        (problem_mark (fslot-value parser 'problem_mark)))
     (error 'yaml-parser-error :message (native-to-string problem)
                               :mark (make-yaml-mark problem_mark))))
+
+(define-condition yaml-emitter-error (yaml-error)
+  ((message :reader yaml-emitter-error-message
+            :initarg :message
+            :type simple-string
+            :documentation "The error message (see `problem' field of `yaml_emitter_t')."))
+  (:report
+   (lambda (condition stream)
+     (format stream "YAML emitter error: ~A.~&"
+             (yaml-emitter-error-message condition)))))
+
+(defun signal-yaml-emitter-error (emitter)
+  (let ((problem (fslot-value emitter 'problem)))
+    (error 'yaml-emitter-error :message (native-to-string problem))))
 
 ;;; Internal implementation
 (defmacro with-libyaml-parser ((parser-var) &body body)
   `(with-stack-fobjects ((,parser-var 'yaml_parser_t))
-     (when (zerop (yaml_parser_initialize ,parser-var))
+     (when (= 0 (yaml_parser_initialize ,parser-var))
        (error 'libyaml-error :from 'yaml_parser_initialize))
      (unwind-protect (progn ,@body)
        (yaml_parser_delete ,parser-var))))
@@ -166,11 +190,158 @@
                          (assert (zerop (fclose ,fp)))))))
      else form))
 
+(def-foreign-type yaml_emitter_output_buffer
+    ;; a utility struct for collecting emitter's output
+    (:struct
+     (buf (* :char))
+     (size size_t)
+     (pos  size_t)))
+
+(defun-foreign-callable yaml-write-handler ((output (* yaml_emitter_output_buffer))
+                                            (src    (* :char))
+                                            (count  size_t))
+  (declare (:returning :int)
+           (type fixnum output)
+           (optimize (speed 3) (safety 1)))
+  (labels ((resize-maybe ()
+             ;; it checks if the count exceeds the current size of the output buffer
+             ;; if yes, it will grow the buffer (by factor 2)
+             (let ((buf  (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'buf))
+                   (pos  (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'pos))
+                   (size (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'size))
+                   (resize-p nil)
+                   (newbuf nil))
+               (when (>= (+ pos count) size)
+                 (setq resize-p t)
+                 (while (>= (+ pos count) size)
+                   (setq size (* size 2))))
+               (if* resize-p
+                  then (setq newbuf (allocate-fobject :char :c size))
+                       (memcpy newbuf buf pos)
+                       (free-fobject buf)
+                       (setf (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'buf)  newbuf
+                             (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'size) size)
+                       newbuf
+                  else buf)))
+           (write-to-buffer ()
+             (let ((dest (resize-maybe))
+                   (pos  (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'pos)))
+               (memcpy (+ dest (* pos #.(sizeof-fobject :char))) src count)
+               (setf (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'pos)
+                     (+ pos count)))))
+    ;; return 1 on success and 0 otherwise
+    (handler-case (progn (write-to-buffer) 1)
+      (error () 0))))
+
+(defun initialize-emitter (emitter)
+  (when (= 0 (yaml_emitter_initialize emitter))
+    (error 'libyaml-error :from 'yaml_emitter_initialize))
+  ;; TODO: initialize with more options
+  (yaml_emitter_set_encoding emitter #.(position 'YAML_UTF8_ENCODING *enum-yaml-encoding*)))
+
+(defmacro with-libyaml-emitter ((emitter-var) &body body)
+  `(with-stack-fobjects ((,emitter-var 'yaml_emitter_t))
+     (initialize-emitter ,emitter-var)
+     (unwind-protect (progn ,@body)
+       (yaml_emitter_delete ,emitter-var))))
+
+(defun yaml-emitter-dump (emitter document)
+  (when (= 0 (yaml_emitter_open emitter))
+    (error 'libyaml-error :from 'yaml_emitter_open))
+  (when (= 0 (yaml_emitter_dump emitter document))
+    (signal-yaml-emitter-error emitter))
+  (when (= 0 (yaml_emitter_close emitter))
+    (error 'libyaml-error :from 'yaml_emitter_close)))
+
+(defun write-yaml-document (object)
+  (let ((document (allocate-fobject 'yaml_document_t :c)))
+    (when (= 0 (yaml_document_initialize document 0 0 0 0 0))
+      (error 'libyaml-error :from 'yaml_document_initialize))
+    (write-yaml-node object document)
+    document))
+
+(defun write-yaml-node (object document)
+  (typecase object
+    (yaml-sequence (write-yaml-sequence-node object document))
+    (yaml-mapping (write-yaml-mapping-node object document))
+    (t (write-yaml-scalar-node object document))))
+
+(defun write-yaml-scalar-node (object document)
+  (let* ((value (cond ((yaml-null-p object) "null")
+                      ((eql object 't) "true")
+                      ((eql object 'nil) "false")
+                      ((symbolp object) (symbol-name object))
+                      ((stringp object) object)
+                      ((integerp object) (princ-to-string object))
+                      ((single-float-p object) (let ((*read-default-float-format* 'single-float))
+                                                 (princ-to-string object)))
+                      ((double-float-p object) (let ((*read-default-float-format* 'double-float))
+                                                 (princ-to-string object)))))
+         (scalar (yaml_document_add_scalar
+                  document
+                  0
+                  (string-to-native value)
+                  -1
+                  #.(position 'YAML_PLAIN_SCALAR_STYLE *enum-yaml-scalar-style*))))
+    (when (= 0 scalar)
+      (error 'libyaml-error :from 'yaml_document_add_scalar))
+    scalar))
+
+(defun write-yaml-sequence-node (object document)
+  (declare (type yaml-sequence object))
+  (let ((sequence (yaml_document_add_sequence document 0 #.(position 'YAML_ANY_SEQUENCE_STYLE *enum-yaml-sequence-style*))))
+    (when (= 0 sequence)
+      (error 'libyaml-error :from 'yaml_document_add_sequence))
+    (do ((i 0 (1+ i)))
+        ((= i (length object)))
+      (when (= 0 (yaml_document_append_sequence_item
+                  document
+                  sequence
+                  (write-yaml-node (svref object i) document)))
+        (error 'libyaml-error :from 'yaml_document_append_sequence_item)))
+    sequence))
+
+(defun write-yaml-mapping-node (object document)
+  (declare (type yaml-mapping object))
+  (let ((mapping (yaml_document_add_mapping document 0 #.(position 'YAML_ANY_MAPPING_STYLE  *enum-yaml-mapping-style*))))
+    (when (= 0 mapping)
+      (error 'libyaml-error :from 'yaml_document_add_mapping))
+    (with-hash-table-iterator (gen object)
+      (while t
+        (multiple-value-bind (more? k-object v-object) (gen)
+          (when (not more?) (return))
+          (when (= 0 (yaml_document_append_mapping_pair
+                      document
+                      mapping
+                      (write-yaml-node k-object document)
+                      (write-yaml-node v-object document)))
+            (error 'libyaml-error :from 'yaml_document_append_mapping_pair)))))
+    mapping))
+
+(defun initialize-emitter-output-buffer (output)
+  (declare (type fixnum output))
+  (let ((size 16))
+    (setf (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'buf)  (allocate-fobject :char :c size)
+          (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'size) size
+          (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'pos)  0)))
+
 ;;; Top-level APIs
 (defun read-yaml (input &key pathname-p multiple)
   (if* pathname-p
      then (.read-yaml-file.   input multiple)
      else (.read-yaml-string. input multiple)))
+
+(defun write-yaml (object)
+  (with-libyaml-emitter (emitter)
+    (with-static-fobjects ((output 'yaml_emitter_output_buffer :allocation :aligned))
+      (initialize-emitter-output-buffer output)
+      (yaml_emitter_set_output emitter #.(register-foreign-callable 'yaml-write-handler) output)
+      (unwind-protect
+           (progn (yaml-emitter-dump emitter (write-yaml-document object))
+                  (native-to-string (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'buf)
+                                    :length (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'pos)))
+        ;; clean up
+        (free-fobject (fslot-value-typed 'yaml_emitter_output_buffer :aligned output 'buf))))))
 
 ;;; load libyaml shared library
 (eval-when (:load-toplevel)
