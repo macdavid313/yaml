@@ -20,10 +20,14 @@ libyaml.%: vendor
 	cp -L vendor/build/lib/$@ ./$@
 
 yaml.fasl:
-	@$(LISP) -q -L pkg.cl -e '(yaml.pkg:build-yaml)' --kill
+	@$(LISP) -q -L pkg.cl -e '(yaml.pkg:build)' --kill
+
+.PHONY: test
+test: yaml.fasl
+	$(LISP) -q -L yaml.fasl -L t/yaml.cl -e '(yaml.test:main)' --kill
 
 clean:
-	rm -rf yaml-$(LIBYAML_VERSION)
+	rm -rf ./vendor
 	find . -type f -name "*.fasl" -delete
 	find . -type f -name "*.so" -delete
 	find . -type f -name "*.dll" -delete
