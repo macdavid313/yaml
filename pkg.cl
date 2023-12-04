@@ -12,7 +12,7 @@
 
 (eval-when (:load-toplevel :execute)
   (defparameter *yaml-src-files*
-    (let ((files '(;; start of sys module
+    (let ((files '(;; start of files list
                    "src/package"
                    "src/ffi"
                    "src/types"
