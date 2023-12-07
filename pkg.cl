@@ -6,7 +6,8 @@
         #:excl
         #:util.string)
   (:export #:compile-and-load
-           #:build))
+           #:build
+           #:test))
 
 (in-package #:yaml.pkg)
 
@@ -42,6 +43,4 @@
 (defun test ()
   (require :tester)
   (pushnew :yaml.test *features*)
-  (compile-and-load)
-  ;; tests begin from here ...
-  (yaml::test-lexer))
+  (compile-and-load))
