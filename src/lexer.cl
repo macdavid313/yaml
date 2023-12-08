@@ -37,36 +37,6 @@
   (start 0    :type fixnum)
   (end   -1   :type fixnum))
 
-(defstruct token-iterator
-  (buffer nil :type (array token (*)))
-  (pos      0 :type fixnum))
-
-(defun next-token (iterator)
-  (let ((token (peek-token iterator)))
-    (if* token
-       then (incf (token-iterator-pos iterator))
-            token
-       else nil)))
-
-(defun peek-token (iterator)
-  (with-slots (buffer pos) iterator
-    (if* (>= pos (length buffer))
-       then nil
-       else (aref buffer pos))))
-
-(defun reset-token-iterator (iterator)
-  (setf (token-iterator-pos iterator) 0))
-
-(defun seek-token-to (iterator pos)
-  (setf (token-iterator-pos iterator) pos))
-
-(defun seek-token-by (iterator offset)
-  (with-slots (buffer pos) iterator
-    (let ((new-pos (+ offset pos)))
-      (if* (< new-pos 0)
-         then (setf pos 0)
-         else (setf pos new-pos)))))
-
 (defun matches-pattern-p (pattern str offset)
   (let ((count 0)
         (slice (make-array (- (length str) offset) :element-type 'character
